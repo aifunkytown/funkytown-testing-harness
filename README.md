@@ -38,36 +38,13 @@ the browser are mocked out there.)
 
 ## Desktop GUI
 
-```bash
-pip install PySide6
-python -m funkytown_testing_harness.gui.main
-```
+A PySide6 desktop front end for building and running a config without
+hand-editing JSON lives in a separate project:
+[funkytown-testing-harness-gui](https://github.com/aifunkytown/funkytown-testing-harness-gui)
+(expects this repo checked out as a sibling directory, same as this repo
+expects `comfy-prompt-tools`).
 
-A local-only desktop front end (PySide6/Qt) for building and running a config
-without hand-editing JSON:
-
-- **Workflow selector** - dropdown of workflow files found in your ComfyUI
-  installation's `user/default/workflows` folder (configured in Settings),
-  plus a Strip LoRAs checkbox and a positive-prompt override box.
-- **Model dropdowns** - pick a model from a live-queried dropdown (from
-  ComfyUI's `/object_info`) and "Add to list" builds up the models-to-compare
-  list. Double-click (or "Edit selected...") an entry to open its config
-  window - check a field (sampler/steps/cfg/scheduler/seed/denoise) to
-  override it, leave it unchecked to use the workflow's own value, and add
-  multiple configs to run that model more than once.
-- **Settings window** - ComfyUI server URL, ComfyUI installation folder (for
-  the workflow dropdown), and an optional override for where
-  `comfy-prompt-tools` lives if it isn't a sibling directory.
-- **Save Config.../Load Config...** - read and write the same JSON config
-  format `run_test.py` uses on the command line, so a config built in the GUI
-  can be run headlessly later (or vice versa).
-
-Clicking **Run Test** writes the assembled config to `gui_last_run.json`
-(gitignored) and runs it through the exact same `run_test.run()` used by the
-CLI, on a background thread so the window doesn't freeze - progress streams
-into the log panel at the bottom, same messages as the CLI would print.
-
-## Running a test case from the command line
+## Running a test case
 
 ```bash
 python -m funkytown_testing_harness.run_test configs/model-testing-config.json
