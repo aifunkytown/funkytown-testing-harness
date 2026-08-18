@@ -19,6 +19,12 @@ configs/model-testing-config.json
 # Per-run output logs - local only.
 runs/
 
+# GUI: local machine settings (server URL, local folder paths) and the
+# config the GUI writes out right before each run (can carry real prompt
+# text via positive_prompt, same reasoning as above).
+gui_settings.json
+gui_last_run.json
+
 # Editor/OS cruft
 .vscode/
 .idea/

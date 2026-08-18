@@ -72,19 +72,22 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-# comfy-prompt-tools is a sibling checkout, not an installed package - see README.
-_COMFY_PROMPT_TOOLS = Path(__file__).resolve().parent.parent.parent / "comfy-prompt-tools"
-if str(_COMFY_PROMPT_TOOLS) not in sys.path:
-    sys.path.insert(0, str(_COMFY_PROMPT_TOOLS))
-
+# comfy-prompt-tools is a sibling checkout, not an installed package - see
+# README. If something (e.g. the GUI, using a custom path from settings)
+# already made it importable, that takes precedence over the sibling guess.
 try:
     from comfy_prompt_tools.rerun_prompts_comfyui import find_save_image_node_ids, queue_prompt
 except ImportError:
-    sys.exit(
-        f"Error: could not import comfy_prompt_tools from {_COMFY_PROMPT_TOOLS}.\n"
-        "Expected comfy-prompt-tools checked out as a sibling directory next to "
-        "funkytown-testing-harness."
-    )
+    _COMFY_PROMPT_TOOLS = Path(__file__).resolve().parent.parent.parent / "comfy-prompt-tools"
+    sys.path.insert(0, str(_COMFY_PROMPT_TOOLS))
+    try:
+        from comfy_prompt_tools.rerun_prompts_comfyui import find_save_image_node_ids, queue_prompt
+    except ImportError:
+        sys.exit(
+            f"Error: could not import comfy_prompt_tools from {_COMFY_PROMPT_TOOLS}.\n"
+            "Expected comfy-prompt-tools checked out as a sibling directory next to "
+            "funkytown-testing-harness (or already importable via sys.path)."
+        )
 
 from funkytown_testing_harness.live_workflow import load_live_template, set_positive_prompt, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model

@@ -21,18 +21,21 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-_COMFY_PROMPT_TOOLS = Path(__file__).resolve().parent.parent.parent / "comfy-prompt-tools"
-if str(_COMFY_PROMPT_TOOLS) not in sys.path:
-    sys.path.insert(0, str(_COMFY_PROMPT_TOOLS))
-
+# If something (e.g. the GUI, using a custom path from settings) already made
+# comfy_prompt_tools importable, that takes precedence over the sibling guess.
 try:
     from comfy_prompt_tools.rerun_prompts_comfyui import find_power_lora_loader_id, find_prompt_node_ids
 except ImportError:
-    sys.exit(
-        f"Error: could not import comfy_prompt_tools from {_COMFY_PROMPT_TOOLS}.\n"
-        "Expected comfy-prompt-tools checked out as a sibling directory next to "
-        "funkytown-testing-harness."
-    )
+    _COMFY_PROMPT_TOOLS = Path(__file__).resolve().parent.parent.parent / "comfy-prompt-tools"
+    sys.path.insert(0, str(_COMFY_PROMPT_TOOLS))
+    try:
+        from comfy_prompt_tools.rerun_prompts_comfyui import find_power_lora_loader_id, find_prompt_node_ids
+    except ImportError:
+        sys.exit(
+            f"Error: could not import comfy_prompt_tools from {_COMFY_PROMPT_TOOLS}.\n"
+            "Expected comfy-prompt-tools checked out as a sibling directory next to "
+            "funkytown-testing-harness (or already importable via sys.path)."
+        )
 
 
 def fetch_live_workflow(server, source_workflow):
