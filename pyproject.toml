@@ -1,0 +1,13 @@
+[project]
+name = "funkytown-testing-harness"
+version = "0.1.0"
+description = "Config-driven sweep runner for pushing the same prompt/workflow across multiple ComfyUI models"
+requires-python = ">=3.10"
+dependencies = ["playwright"]
+
+[tool.setuptools.packages.find]
+include = ["funkytown_testing_harness*"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
