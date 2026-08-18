@@ -14,10 +14,11 @@ you judge the output yourself.
 
 This project imports directly from `comfy_prompt_tools` rather than installing
 it as a package, so it expects `comfy-prompt-tools` checked out as a **sibling
-directory** next to this one:
+directory** next to this one. The parent folder can be named/located anything
+you like - only the sibling relationship matters:
 
 ```
-Claude Projects/
+your-workspace/
 ├── comfy-prompt-tools/
 └── funkytown-testing-harness/
 ```
