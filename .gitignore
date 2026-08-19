@@ -15,6 +15,7 @@ dist/
 # cached there for debugging.
 workflows/
 configs/model-testing-config.json
+configs/lora-testing-config.json
 
 # Per-run output logs - local only.
 runs/

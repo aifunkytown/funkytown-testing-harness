@@ -140,13 +140,66 @@ This queues the SFW prompt above against both
 `bf95Krea2DarkRealism_v325.safetensors` (er_sde, 10 steps), so you can compare
 how the two models render the same scene.
 
+## Running a LoRA weight sweep
+
+```bash
+python -m funkytown_testing_harness.lora_test configs/lora-testing-config.json
+```
+
+Same idea as model testing, but for one LoRA at a time: fixed model and
+workflow, one LoRA turned on (every other LoRA slot forced off) at each
+weight given for it - one queued run per (LoRA, weight) combination. This
+only sweeps one LoRA at a time for now, not combinations of several LoRAs
+together - see "Adding a new axis to sweep" below for how that could extend.
+
+### Config file format
+
+```json
+{
+    "name": "lora_testing",
+    "source_workflow": "krea2_basic_t2i.json",
+    "model": "krea2SATDirtyrealism_krea2SAT.safetensors",
+    "positive_prompt": "A high-resolution realistic photo of ...",
+    "server": "http://127.0.0.1:8000",
+    "loras": [
+        {
+            "lora": "detail_slider_krea2_loraholic.safetensors",
+            "weights": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+        }
+    ]
+}
+```
+
+- **`model`** - a single model filename (not a list - this tool tests LoRA
+  weights on one fixed model, unlike `run_test.py`'s multi-model comparison).
+  Checked against ComfyUI's live model list the same way; the run **aborts
+  with an error** if it isn't present.
+- **`loras`** - list of LoRA objects, each with:
+  - **`lora`** - filename of a LoRA slot that must already exist in the
+    workflow's Power Lora Loader (rgthree) node (added there via ComfyUI's
+    "+ Add Lora" widget beforehand - a slot can be toggled on/off and given
+    a strength, but not created through the API). One not found there is
+    **skipped with a warning**, logged as `skipped` in the output CSV,
+    rather than failing the whole run.
+  - **`weights`** - list of strength values to run that LoRA at, one queued
+    run per value. Every other LoRA slot is forced off for each run, so
+    each generation isolates exactly one LoRA at one weight - never a
+    combination of several.
+- `source_workflow`/`positive_prompt`/`server` work exactly as in
+  `run_test.py`.
+
+Output goes to `tests/<name>/<lora filename stem>_w<weight>/...` (e.g.
+`_w1_5` for weight `1.5`) and the run log to `runs/<name>_<timestamp>.csv`
+with one row per (LoRA, weight).
+
 ### Workflow-related files are gitignored
 
-`workflows/` is excluded from git, and so is `configs/model-testing-config.json`
-specifically - both can carry real (sometimes NSFW) prompt text via
-`positive_prompt` as you edit them for your own experiments. `examples/` is
-the deliberate exception: files there are vetted SFW references meant to be
-committed and visible, not your live working config.
+`workflows/` is excluded from git, and so are `configs/model-testing-config.json`
+and `configs/lora-testing-config.json` specifically - all three can carry
+real (sometimes NSFW) prompt text via `positive_prompt` as you edit them for
+your own experiments. `examples/` is the deliberate exception: files there
+are vetted SFW references meant to be committed and visible, not your live
+working config.
 
 ## Output
 
@@ -161,19 +214,24 @@ used, and any error detail. `runs/` is also gitignored.
 python -m unittest discover -s tests -v
 ```
 
-Covers `model_swap.py` (finding/repointing model-loader nodes), `live_workflow.py`
+Covers `model_swap.py` (finding/repointing model-loader nodes), `lora_swap.py`
+(isolating a single LoRA slot on/off at a strength), `live_workflow.py`
 (fetching/converting from ComfyUI, stripping LoRAs, overriding the prompt),
-and the config logic in `run_test.py` - KSampler overrides, checking models
-against ComfyUI's live model list, skipping missing ones, erroring below 2
-present models, and the single-config-vs-multiple-configs expansion (one
-queued run per config, `batch_size` never touched). ComfyUI and the browser
-are fully mocked out, so these run without a server up.
+and the config logic in `run_test.py`/`lora_test.py` - KSampler overrides,
+checking models against ComfyUI's live model list, skipping missing
+models/LoRAs, erroring below 2 present models (or a missing single model for
+LoRA testing), and the multi-value expansion (one queued run per
+config/weight, `batch_size` never touched). ComfyUI and the browser are
+fully mocked out, so these run without a server up.
 
-## Adding a new axis to sweep (e.g. LoRA, seed)
+## Adding a new axis to sweep (e.g. multiple LoRAs combined, seed, multiple models for LoRA testing)
 
-Model and KSampler settings (sampler/steps/cfg/scheduler/seed/denoise) are
-covered. To sweep something else - a LoRA on/off, for instance - add a small
-helper function alongside the ones in `model_swap.py`, then call it from
-`run()` in `run_test.py` for each combination you want.
-`comfy_prompt_tools.rerun_prompts_comfyui` already has reusable pieces for
-some of this - e.g. `find_power_lora_loader_id` for LoRA toggling.
+Model and KSampler settings (`run_test.py`) and single-LoRA weight
+(`lora_test.py`) are covered. To extend further - combining several LoRAs
+together in one run rather than one at a time, sweeping seed, or letting
+`lora_test.py` compare across multiple models too - follow the same pattern:
+a small helper alongside `model_swap.py`/`lora_swap.py`, called from `run()`
+for each combination wanted. `comfy_prompt_tools.rerun_prompts_comfyui`
+already has reusable pieces for some of this - e.g. `apply_loras`/
+`LORA_RULES` for combining multiple LoRAs at once by keyword match, or
+`find_seed_inputs` for seed sweeps.
