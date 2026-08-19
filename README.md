@@ -146,11 +146,15 @@ how the two models render the same scene.
 python -m funkytown_testing_harness.lora_test configs/lora-testing-config.json
 ```
 
-Same idea as model testing, but for one LoRA at a time: fixed model and
-workflow, one LoRA turned on (every other LoRA slot forced off) at each
-weight given for it - one queued run per (LoRA, weight) combination. This
-only sweeps one LoRA at a time for now, not combinations of several LoRAs
-together - see "Adding a new axis to sweep" below for how that could extend.
+Same idea as model testing, but for LoRA weights: fixed model and workflow,
+one queued run per combination. Two modes, controlled by `combine_loras`:
+
+- **Isolated** (default): one LoRA turned on at a time (every other LoRA
+  slot forced off), at each of its weights - LoRAs are never mixed together.
+- **Combined** (`"combine_loras": true`): every listed LoRA turned on
+  *together*, one queued run per combination across the cartesian product of
+  all their weight lists - e.g. 2 LoRAs with 2 weights each queues all 4
+  pairings, each with both LoRAs active simultaneously.
 
 ### Config file format
 
@@ -160,11 +164,16 @@ together - see "Adding a new axis to sweep" below for how that could extend.
     "source_workflow": "krea2_basic_t2i.json",
     "model": "krea2SATDirtyrealism_krea2SAT.safetensors",
     "positive_prompt": "A high-resolution realistic photo of ...",
+    "combine_loras": true,
     "server": "http://127.0.0.1:8000",
     "loras": [
         {
             "lora": "detail_slider_krea2_loraholic.safetensors",
-            "weights": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+            "weights": [1.0, 3.0]
+        },
+        {
+            "lora": "Cinematic_Krea2_2_c1n3m4t1c_st6000.safetensors",
+            "weights": [0.8, 1.5]
         }
     ]
 }
@@ -174,23 +183,25 @@ together - see "Adding a new axis to sweep" below for how that could extend.
   weights on one fixed model, unlike `run_test.py`'s multi-model comparison).
   Checked against ComfyUI's live model list the same way; the run **aborts
   with an error** if it isn't present.
+- **`combine_loras`** - optional, default `false`. See the two modes above.
 - **`loras`** - list of LoRA objects, each with:
   - **`lora`** - filename of a LoRA slot that must already exist in the
     workflow's Power Lora Loader (rgthree) node (added there via ComfyUI's
     "+ Add Lora" widget beforehand - a slot can be toggled on/off and given
     a strength, but not created through the API). One not found there is
-    **skipped with a warning**, logged as `skipped` in the output CSV,
-    rather than failing the whole run.
-  - **`weights`** - list of strength values to run that LoRA at, one queued
-    run per value. Every other LoRA slot is forced off for each run, so
-    each generation isolates exactly one LoRA at one weight - never a
-    combination of several.
+    **skipped with a warning**, logged as `skipped` in the output CSV. In
+    combined mode, if any LoRA in a combination is missing, that whole
+    combination is skipped rather than partially applying the rest.
+  - **`weights`** - list of strength values for that LoRA. In isolated mode,
+    one run per value; in combined mode, one axis of the cartesian product.
 - `source_workflow`/`positive_prompt`/`server` work exactly as in
   `run_test.py`.
 
-Output goes to `tests/<name>/<lora filename stem>_w<weight>/...` (e.g.
-`_w1_5` for weight `1.5`) and the run log to `runs/<name>_<timestamp>.csv`
-with one row per (LoRA, weight).
+Output goes to `tests/<name>/<lora filename stem>_w<weight>/...` in isolated
+mode, or `tests/<name>/<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
+(joined with `__`, one segment per LoRA) in combined mode. The run log at
+`runs/<name>_<timestamp>.csv` has one row per combination, with a `LoRAs`
+column describing every LoRA/weight involved in that run.
 
 ### Workflow-related files are gitignored
 
@@ -224,14 +235,12 @@ LoRA testing), and the multi-value expansion (one queued run per
 config/weight, `batch_size` never touched). ComfyUI and the browser are
 fully mocked out, so these run without a server up.
 
-## Adding a new axis to sweep (e.g. multiple LoRAs combined, seed, multiple models for LoRA testing)
+## Adding a new axis to sweep (e.g. seed, multiple models for LoRA testing)
 
-Model and KSampler settings (`run_test.py`) and single-LoRA weight
-(`lora_test.py`) are covered. To extend further - combining several LoRAs
-together in one run rather than one at a time, sweeping seed, or letting
-`lora_test.py` compare across multiple models too - follow the same pattern:
-a small helper alongside `model_swap.py`/`lora_swap.py`, called from `run()`
-for each combination wanted. `comfy_prompt_tools.rerun_prompts_comfyui`
-already has reusable pieces for some of this - e.g. `apply_loras`/
-`LORA_RULES` for combining multiple LoRAs at once by keyword match, or
-`find_seed_inputs` for seed sweeps.
+Model and KSampler settings (`run_test.py`), and single-LoRA and
+combined-LoRA weight sweeps (`lora_test.py`), are covered. To extend
+further - sweeping seed, or letting `lora_test.py` compare across multiple
+models too - follow the same pattern: a small helper alongside
+`model_swap.py`/`lora_swap.py`, called from `run()` for each combination
+wanted. `comfy_prompt_tools.rerun_prompts_comfyui` already has a reusable
+piece for seed sweeps - `find_seed_inputs`.

@@ -1,6 +1,6 @@
 import unittest
 
-from funkytown_testing_harness.lora_swap import find_lora_slot_keys, set_single_lora
+from funkytown_testing_harness.lora_swap import find_lora_slot_keys, set_multiple_loras, set_single_lora
 
 
 def make_lora_node():
@@ -78,6 +78,45 @@ class SetSingleLoraTests(unittest.TestCase):
             self.assertTrue(wf["22"]["inputs"]["lora_1"]["on"])
             self.assertFalse(wf["22"]["inputs"]["lora_2"]["on"])
             self.assertFalse(wf["22"]["inputs"]["lora_3"]["on"])
+
+
+class SetMultipleLorasTests(unittest.TestCase):
+    def test_turns_on_all_targets_at_their_own_strength(self):
+        wf = make_lora_node()
+        missing = set_multiple_loras(wf, "22", [("futa.safetensors", 0.3), ("skindetails.safetensors", 1.75)])
+        self.assertEqual(missing, [])
+        self.assertTrue(wf["22"]["inputs"]["lora_1"]["on"])
+        self.assertEqual(wf["22"]["inputs"]["lora_1"]["strength"], 0.3)
+        self.assertTrue(wf["22"]["inputs"]["lora_3"]["on"])
+        self.assertEqual(wf["22"]["inputs"]["lora_3"]["strength"], 1.75)
+
+    def test_turns_off_every_slot_not_targeted(self):
+        wf = make_lora_node()
+        # lora_2 starts "on": True in the fixture - confirm it's turned off
+        # since it's not one of the targets this time.
+        set_multiple_loras(wf, "22", [("futa.safetensors", 0.3), ("skindetails.safetensors", 1.75)])
+        self.assertFalse(wf["22"]["inputs"]["lora_2"]["on"])
+
+    def test_all_or_nothing_when_one_target_missing(self):
+        wf = make_lora_node()
+        before = {k: dict(v) for k, v in wf["22"]["inputs"].items() if isinstance(v, dict)}
+        missing = set_multiple_loras(wf, "22", [("futa.safetensors", 0.3), ("does_not_exist.safetensors", 1.0)])
+        self.assertEqual(missing, ["does_not_exist.safetensors"])
+        after = {k: dict(v) for k, v in wf["22"]["inputs"].items() if isinstance(v, dict)}
+        self.assertEqual(before, after)  # nothing touched, including the target that WAS found
+
+    def test_does_not_touch_model_clip_passthrough(self):
+        wf = make_lora_node()
+        set_multiple_loras(wf, "22", [("futa.safetensors", 0.3)])
+        self.assertEqual(wf["22"]["inputs"]["model"], ["36", 0])
+        self.assertEqual(wf["22"]["inputs"]["clip"], ["59", 0])
+
+    def test_single_pair_behaves_like_set_single_lora(self):
+        wf_a = make_lora_node()
+        wf_b = make_lora_node()
+        set_single_lora(wf_a, "22", "skindetails.safetensors", 1.75)
+        set_multiple_loras(wf_b, "22", [("skindetails.safetensors", 1.75)])
+        self.assertEqual(wf_a, wf_b)
 
 
 if __name__ == "__main__":
