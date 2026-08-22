@@ -1,33 +1,32 @@
 """
-Run a LoRA-weight sweep against a running ComfyUI server: one fixed model and
-workflow, LoRA(s) turned on at each weight given for them, one queued
-generation per combination.
+Run a LoRA-weight sweep against a running ComfyUI server: one or more models
+and a fixed workflow, LoRA(s) turned on at each weight given for them, one
+queued generation per (model, LoRA combination) pair.
 
-Two modes, controlled by "combine_loras" in the config:
+Two LoRA modes, controlled by "combine_loras" in the config:
   - Isolated (default, combine_loras absent/false): one LoRA turned on at a
     time (every other LoRA slot forced off), at each of its weights - one
-    queued run per (LoRA, weight) pair, LoRAs never mixed together.
+    combination per (LoRA, weight) pair, LoRAs never mixed together.
   - Combined (combine_loras: true): every listed LoRA turned on together,
-    one queued run per combination across the cartesian product of all their
-    weight lists - e.g. 2 LoRAs with 3 weights each queues 9 runs, each with
-    both LoRAs active simultaneously at one weight pairing.
+    one combination per pairing across the cartesian product of all their
+    weight lists - e.g. 2 LoRAs with 3 weights each makes 9 combinations,
+    each with both LoRAs active simultaneously at one weight pairing.
+
+Every present model is run against every LoRA combination - e.g. 2 models
+and 4 LoRA combinations queues all 8 pairings.
 
 The source workflow is always fetched fresh from ComfyUI and converted on
 every run (see live_workflow.py), same as run_test.py.
 
 There is no pass/fail here. This submits each variant to ComfyUI and logs what
-was queued (LoRA(s) and weight(s), prompt_id, output filename prefix) to a
-CSV under runs/, so you can compare the resulting images yourself.
-
-This only supports a single fixed model for now, not multiple models the way
-run_test.py compares models - see model_swap.py/run_test.py for the
-equivalent pattern this could follow if that's ever needed.
+was queued (model, LoRA(s) and weight(s), prompt_id, output filename prefix)
+to a CSV under runs/, so you can compare the resulting images yourself.
 
 Config file format (JSON):
     {
         "name": "lora_testing",
         "source_workflow": "krea2_basic_t2i.json",
-        "model": "krea2SATDirtyrealism_krea2SAT.safetensors",
+        "models": ["krea2SATDirtyrealism_krea2SAT.safetensors", "bf95Krea2DarkRealism_v325.safetensors"],
         "positive_prompt": "A high-resolution realistic photo of ...",
         "combine_loras": true,
         "server": "http://127.0.0.1:8000",
@@ -41,12 +40,14 @@ Config file format (JSON):
   user/default/workflows folder. Pulled fresh from ComfyUI and converted to
   API format every time this runs (requires playwright - see
   live_workflow.py).
-- "model" - a single model filename. Checked against ComfyUI's own live model
-  list (/object_info) before running; the run aborts with an error if it
-  isn't present.
+- "models" - list of model filenames (or "model" - a single filename - for
+  the older single-model form; equivalent to a one-item "models" list).
+  Each is checked against ComfyUI's own live model list (/object_info)
+  before running - one not currently installed is skipped with a warning.
+  The run aborts with an error if none of them are present.
 - "positive_prompt" - optional, reapplied every run: overwrites the positive
   CLIPTextEncode node's text.
-- "combine_loras" - optional, default false. See the two modes above.
+- "combine_loras" - optional, default false. See the two LoRA modes above.
 - "loras" - list of LoRA objects, each with:
   - "lora" - filename of a LoRA slot that must already exist in the
     workflow's Power Lora Loader (rgthree) node (added there via ComfyUI's
@@ -113,6 +114,15 @@ def build_template(config, server):
     return template
 
 
+def config_models(config):
+    """Normalize "models" (list) / "model" (single, older form) into a list."""
+    if "models" in config:
+        return list(config["models"])
+    if "model" in config:
+        return [config["model"]]
+    sys.exit("Error: config must specify either 'models' (a list) or 'model' (a single filename).")
+
+
 def fetch_available_models(server, class_type, field):
     """Same approach as run_test.py: ask ComfyUI's own /object_info rather
     than guessing at filesystem layout."""
@@ -125,15 +135,33 @@ def fetch_available_models(server, class_type, field):
         sys.exit(f"Error: could not fetch available models from {url}: {e}")
 
 
-def check_model_present(model_name, template, server):
+def resolve_present_models(models, template, server):
+    """Check each configured model against ComfyUI's live model list. Returns
+    the subset that are actually present (skipping - with a warning - any
+    that aren't), or exits with an error if none are present."""
     loader_nodes = find_model_loader_nodes(template)
     if not loader_nodes:
         sys.exit("Error: no recognized model-loader node (UNETLoader/CheckpointLoader) found in workflow.")
 
-    for _node_id, field, class_type in loader_nodes:
-        if model_name in fetch_available_models(server, class_type, field):
-            return
-    sys.exit(f"Error: model '{model_name}' not found on this ComfyUI server.")
+    available_cache = {}
+    present = []
+    for model_name in models:
+        found = False
+        for _node_id, field, class_type in loader_nodes:
+            key = (class_type, field)
+            if key not in available_cache:
+                available_cache[key] = fetch_available_models(server, class_type, field)
+            if model_name in available_cache[key]:
+                found = True
+                break
+        if found:
+            present.append(model_name)
+        else:
+            print(f"[{model_name}] Skipping: not found on this ComfyUI server", file=sys.stderr)
+
+    if not present:
+        sys.exit(f"Error: none of the {len(models)} configured model(s) are present on this ComfyUI server.")
+    return present
 
 
 def build_combinations(loras_config, combine):
@@ -157,22 +185,21 @@ def combo_description(combo):
     return "; ".join(f"{lora}={weight}" for lora, weight in combo)
 
 
-def combo_prefix(name, combo):
-    return f"tests/{name}/" + "__".join(f"{Path(lora).stem}_w{weight_label(weight)}" for lora, weight in combo)
+def combo_prefix(name, model, combo):
+    lora_part = "__".join(f"{Path(lora).stem}_w{weight_label(weight)}" for lora, weight in combo)
+    return f"tests/{name}/{Path(model).stem}__{lora_part}"
 
 
 def run(config_path):
     config = load_config(config_path)
     server = config.get("server", "http://127.0.0.1:8000")
     name = config.get("name", config_path.stem)
-    model = config["model"]
     combine = bool(config.get("combine_loras"))
 
     print(f"Test case: {name}")
     template = build_template(config, server)
 
-    check_model_present(model, template, server)
-    set_model(template, model)
+    present_models = resolve_present_models(config_models(config), template, server)
 
     lora_node_id = find_power_lora_loader_id(template)
     if not lora_node_id:
@@ -187,45 +214,48 @@ def run(config_path):
     log_path = RUNS_DIR / f"{name}_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
 
     mode = "combined" if combine else "isolated"
-    print(f"Model: {model}")
+    print(f"Models ({len(present_models)}/{len(config_models(config))}): {', '.join(present_models)}")
     print(f"LoRAs ({len(config['loras'])}): {', '.join(l['lora'] for l in config['loras'])}")
-    print(f"Mode: {mode} - {len(combinations)} combination(s) to run\n")
+    print(f"Mode: {mode} - {len(present_models)} model(s) x {len(combinations)} combination(s) "
+          f"= {len(present_models) * len(combinations)} run(s)\n")
 
     with open(log_path, "w", newline="", encoding="utf-8") as log_file:
         writer = csv.writer(log_file)
-        writer.writerow(["LoRAs", "Prompt ID", "Status", "Filename Prefix", "Detail"])
+        writer.writerow(["Model", "LoRAs", "Prompt ID", "Status", "Filename Prefix", "Detail"])
 
-        for combo in combinations:
-            label = combo_description(combo)
-            wf = copy.deepcopy(template)
-            missing = set_multiple_loras(wf, lora_node_id, combo)
-            if missing:
-                print(f"[{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
-                writer.writerow([label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
-                continue
+        for model in present_models:
+            for combo in combinations:
+                label = combo_description(combo)
+                wf = copy.deepcopy(template)
+                set_model(wf, model)
+                missing = set_multiple_loras(wf, lora_node_id, combo)
+                if missing:
+                    print(f"[{model}] [{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
+                    writer.writerow([model, label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
+                    continue
 
-            prefix = combo_prefix(name, combo)
-            for save_id in save_ids:
-                wf[save_id]["inputs"]["filename_prefix"] = prefix
+                prefix = combo_prefix(name, model, combo)
+                for save_id in save_ids:
+                    wf[save_id]["inputs"]["filename_prefix"] = prefix
 
-            try:
-                result = queue_prompt(server, wf, client_id)
-            except urllib.error.URLError as e:
-                print(f"[{label}] Failed to queue: {e}", file=sys.stderr)
-                writer.writerow([label, "", "error", prefix, f"Failed to queue: {e}"])
-                continue
+                try:
+                    result = queue_prompt(server, wf, client_id)
+                except urllib.error.URLError as e:
+                    print(f"[{model}] [{label}] Failed to queue: {e}", file=sys.stderr)
+                    writer.writerow([model, label, "", "error", prefix, f"Failed to queue: {e}"])
+                    continue
 
-            node_errors = result.get("node_errors")
-            prompt_id = result.get("prompt_id")
-            if node_errors:
-                print(f"[{label}] node errors: {node_errors}")
-                writer.writerow([label, prompt_id or "", "error", prefix, json.dumps(node_errors)])
-                continue
+                node_errors = result.get("node_errors")
+                prompt_id = result.get("prompt_id")
+                if node_errors:
+                    print(f"[{model}] [{label}] node errors: {node_errors}")
+                    writer.writerow([model, label, prompt_id or "", "error", prefix, json.dumps(node_errors)])
+                    continue
 
-            print(f"[{label}] -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
-            writer.writerow([label, prompt_id, "queued", prefix, ""])
-            log_file.flush()
-            time.sleep(0.2)
+                print(f"[{model}] [{label}] -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
+                writer.writerow([model, label, prompt_id, "queued", prefix, ""])
+                log_file.flush()
+                time.sleep(0.2)
 
     print(f"\nAll variants queued. Log written to: {log_path}")
     print("ComfyUI processes its queue in the background - check its window or output folder for results.")

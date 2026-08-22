@@ -146,14 +146,16 @@ how the two models render the same scene.
 python -m funkytown_testing_harness.lora_test configs/lora-testing-config.json
 ```
 
-Same idea as model testing, but for LoRA weights: fixed model and workflow,
-one queued run per combination. Two modes, controlled by `combine_loras`:
+Same idea as model testing, but for LoRA weights: one or more models and a
+fixed workflow, one queued run per (model, LoRA combination) pair - e.g. 2
+models and 4 LoRA combinations queues all 8 pairings. Two LoRA modes,
+controlled by `combine_loras`:
 
 - **Isolated** (default): one LoRA turned on at a time (every other LoRA
   slot forced off), at each of its weights - LoRAs are never mixed together.
 - **Combined** (`"combine_loras": true`): every listed LoRA turned on
-  *together*, one queued run per combination across the cartesian product of
-  all their weight lists - e.g. 2 LoRAs with 2 weights each queues all 4
+  *together*, one combination per pairing across the cartesian product of
+  all their weight lists - e.g. 2 LoRAs with 2 weights each makes 4
   pairings, each with both LoRAs active simultaneously.
 
 ### Config file format
@@ -162,7 +164,7 @@ one queued run per combination. Two modes, controlled by `combine_loras`:
 {
     "name": "lora_testing",
     "source_workflow": "krea2_basic_t2i.json",
-    "model": "krea2SATDirtyrealism_krea2SAT.safetensors",
+    "models": ["krea2SATDirtyrealism_krea2SAT.safetensors", "bf95Krea2DarkRealism_v325.safetensors"],
     "positive_prompt": "A high-resolution realistic photo of ...",
     "combine_loras": true,
     "server": "http://127.0.0.1:8000",
@@ -179,11 +181,13 @@ one queued run per combination. Two modes, controlled by `combine_loras`:
 }
 ```
 
-- **`model`** - a single model filename (not a list - this tool tests LoRA
-  weights on one fixed model, unlike `run_test.py`'s multi-model comparison).
-  Checked against ComfyUI's live model list the same way; the run **aborts
-  with an error** if it isn't present.
-- **`combine_loras`** - optional, default `false`. See the two modes above.
+- **`models`** - list of model filenames (or **`model`** - a single
+  filename - for the older single-model form; equivalent to a one-item
+  `models` list). Each is checked against ComfyUI's live model list the same
+  way as `run_test.py` - one not present is **skipped with a warning**
+  rather than failing the whole run; the run **aborts with an error** only
+  if *none* of them are present.
+- **`combine_loras`** - optional, default `false`. See the two LoRA modes above.
 - **`loras`** - list of LoRA objects, each with:
   - **`lora`** - filename of a LoRA slot that must already exist in the
     workflow's Power Lora Loader (rgthree) node (added there via ComfyUI's
@@ -197,11 +201,11 @@ one queued run per combination. Two modes, controlled by `combine_loras`:
 - `source_workflow`/`positive_prompt`/`server` work exactly as in
   `run_test.py`.
 
-Output goes to `tests/<name>/<lora filename stem>_w<weight>/...` in isolated
-mode, or `tests/<name>/<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
+Output goes to `tests/<name>/<model stem>__<lora filename stem>_w<weight>/...`
+in isolated mode, or `tests/<name>/<model stem>__<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
 (joined with `__`, one segment per LoRA) in combined mode. The run log at
-`runs/<name>_<timestamp>.csv` has one row per combination, with a `LoRAs`
-column describing every LoRA/weight involved in that run.
+`runs/<name>_<timestamp>.csv` has one row per (model, combination) pairing,
+with `Model` and `LoRAs` columns describing what ran.
 
 ### Workflow-related files are gitignored
 

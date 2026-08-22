@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from funkytown_testing_harness.lora_test import build_template, check_model_present, load_config, run
+from funkytown_testing_harness.lora_test import build_template, config_models, load_config, resolve_present_models, run
 
 
 def make_template():
@@ -54,17 +54,55 @@ class BuildTemplateTests(unittest.TestCase):
         self.assertEqual(template["3"]["inputs"]["text"], "a new prompt")
 
 
-class CheckModelPresentTests(unittest.TestCase):
+class ConfigModelsTests(unittest.TestCase):
+    def test_single_model_key_normalized_to_list(self):
+        self.assertEqual(config_models({"model": "modelA.safetensors"}), ["modelA.safetensors"])
+
+    def test_models_key_used_as_is(self):
+        self.assertEqual(
+            config_models({"models": ["modelA.safetensors", "modelB.safetensors"]}),
+            ["modelA.safetensors", "modelB.safetensors"],
+        )
+
+    def test_models_key_takes_precedence_over_model(self):
+        config = {"model": "modelA.safetensors", "models": ["modelB.safetensors"]}
+        self.assertEqual(config_models(config), ["modelB.safetensors"])
+
+    def test_neither_key_exits(self):
+        with self.assertRaises(SystemExit):
+            config_models({})
+
+
+class ResolvePresentModelsTests(unittest.TestCase):
     @patch("funkytown_testing_harness.lora_test.fetch_available_models")
-    def test_passes_when_model_present(self, mock_fetch):
+    def test_single_model_present(self, mock_fetch):
         mock_fetch.return_value = {"modelA.safetensors"}
-        check_model_present("modelA.safetensors", make_template(), "http://fake")  # should not raise
+        present = resolve_present_models(["modelA.safetensors"], make_template(), "http://fake")
+        self.assertEqual(present, ["modelA.safetensors"])
 
     @patch("funkytown_testing_harness.lora_test.fetch_available_models")
     def test_exits_when_model_missing(self, mock_fetch):
         mock_fetch.return_value = {"modelA.safetensors"}
         with self.assertRaises(SystemExit):
-            check_model_present("does_not_exist.safetensors", make_template(), "http://fake")
+            resolve_present_models(["does_not_exist.safetensors"], make_template(), "http://fake")
+
+    @patch("funkytown_testing_harness.lora_test.fetch_available_models")
+    def test_multiple_models_all_present(self, mock_fetch):
+        mock_fetch.return_value = {"modelA.safetensors", "modelB.safetensors"}
+        present = resolve_present_models(["modelA.safetensors", "modelB.safetensors"], make_template(), "http://fake")
+        self.assertEqual(present, ["modelA.safetensors", "modelB.safetensors"])
+
+    @patch("funkytown_testing_harness.lora_test.fetch_available_models")
+    def test_one_missing_is_skipped_but_others_still_run(self, mock_fetch):
+        mock_fetch.return_value = {"modelA.safetensors"}
+        present = resolve_present_models(["modelA.safetensors", "does_not_exist.safetensors"], make_template(), "http://fake")
+        self.assertEqual(present, ["modelA.safetensors"])
+
+    @patch("funkytown_testing_harness.lora_test.fetch_available_models")
+    def test_all_missing_exits(self, mock_fetch):
+        mock_fetch.return_value = set()
+        with self.assertRaises(SystemExit):
+            resolve_present_models(["modelA.safetensors", "modelB.safetensors"], make_template(), "http://fake")
 
 
 class RunEndToEndTests(unittest.TestCase):
@@ -136,12 +174,12 @@ class RunEndToEndTests(unittest.TestCase):
         for _server, wf, _client_id in self.queued:
             self.assertEqual(wf["5"]["inputs"]["batch_size"], 3)
 
-    def test_filename_prefix_encodes_lora_and_weight(self):
+    def test_filename_prefix_encodes_model_lora_and_weight(self):
         run(self.config_path)
         prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
-        self.assertIn("tests/unit_test_lora_run/detail_slider_w0_5", prefixes)
-        self.assertIn("tests/unit_test_lora_run/detail_slider_w1_0", prefixes)
-        self.assertIn("tests/unit_test_lora_run/detail_slider_w1_5", prefixes)
+        self.assertIn("tests/unit_test_lora_run/modelA__detail_slider_w0_5", prefixes)
+        self.assertIn("tests/unit_test_lora_run/modelA__detail_slider_w1_0", prefixes)
+        self.assertIn("tests/unit_test_lora_run/modelA__detail_slider_w1_5", prefixes)
 
     def test_log_csv_has_one_row_per_weight(self):
         run(self.config_path)
@@ -166,7 +204,91 @@ class RunEndToEndTests(unittest.TestCase):
         log_files = list(self.runs_dir.glob("unit_test_lora_run_*.csv"))
         with open(log_files[0], newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
-        self.assertEqual(rows[1][2], "skipped")  # header: LoRAs, Prompt ID, Status, Filename Prefix, Detail
+        self.assertEqual(rows[1][3], "skipped")  # header: Model, LoRAs, Prompt ID, Status, Filename Prefix, Detail
+
+
+class RunMultiModelTests(unittest.TestCase):
+    """"models": [...] - every present model run against every LoRA combination."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp_path = Path(self.tmpdir.name)
+
+        self.config = {
+            "name": "unit_test_multi_model_run",
+            "source_workflow": "krea2_basic_t2i.json",
+            "models": ["modelA.safetensors", "modelB.safetensors"],
+            "server": "http://fake",
+            "loras": [
+                {"lora": "detail_slider.safetensors", "weights": [0.5, 1.0]},
+            ],
+        }
+        self.config_path = self.tmp_path / "config.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+
+        self.runs_dir = self.tmp_path / "runs"
+        self.queued = []
+
+        def fake_queue_prompt(server, workflow, client_id):
+            self.queued.append((server, copy.deepcopy(workflow), client_id))
+            return {"prompt_id": f"fake-{len(self.queued)}", "node_errors": {}}
+
+        patcher_queue = patch("funkytown_testing_harness.lora_test.queue_prompt", side_effect=fake_queue_prompt)
+        patcher_load_template = patch(
+            "funkytown_testing_harness.lora_test.load_live_template",
+            side_effect=lambda server, source_workflow: make_template(),
+        )
+        patcher_fetch = patch(
+            "funkytown_testing_harness.lora_test.fetch_available_models",
+            return_value={"modelA.safetensors", "modelB.safetensors"},
+        )
+        patcher_runs_dir = patch("funkytown_testing_harness.lora_test.RUNS_DIR", self.runs_dir)
+        patcher_queue.start()
+        patcher_load_template.start()
+        patcher_fetch.start()
+        patcher_runs_dir.start()
+        self.addCleanup(patcher_queue.stop)
+        self.addCleanup(patcher_load_template.stop)
+        self.addCleanup(patcher_fetch.stop)
+        self.addCleanup(patcher_runs_dir.stop)
+
+    def test_queues_every_model_times_every_combination(self):
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 4)  # 2 models x 2 weights
+
+    def test_every_model_lora_pairing_is_represented(self):
+        run(self.config_path)
+        pairings = {
+            (wf["1"]["inputs"]["unet_name"], wf["22"]["inputs"]["lora_1"]["strength"])
+            for _s, wf, _c in self.queued
+        }
+        self.assertEqual(
+            pairings,
+            {
+                ("modelA.safetensors", 0.5), ("modelA.safetensors", 1.0),
+                ("modelB.safetensors", 0.5), ("modelB.safetensors", 1.0),
+            },
+        )
+
+    def test_filename_prefix_encodes_model(self):
+        run(self.config_path)
+        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        self.assertIn("tests/unit_test_multi_model_run/modelA__detail_slider_w0_5", prefixes)
+        self.assertIn("tests/unit_test_multi_model_run/modelB__detail_slider_w0_5", prefixes)
+
+    def test_one_missing_model_is_skipped_but_others_still_run(self):
+        self.config["models"] = ["modelA.safetensors", "does_not_exist.safetensors"]
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 2)  # only modelA x 2 weights
+
+    def test_all_models_missing_aborts_before_queuing(self):
+        self.config["models"] = ["does_not_exist_a.safetensors", "does_not_exist_b.safetensors"]
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            run(self.config_path)
+        self.assertEqual(len(self.queued), 0)
 
 
 class RunCombinedModeTests(unittest.TestCase):
@@ -239,8 +361,8 @@ class RunCombinedModeTests(unittest.TestCase):
     def test_filename_prefix_encodes_both_loras(self):
         run(self.config_path)
         prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
-        self.assertIn("tests/unit_test_combined_run/detail_slider_w0_5__other_lora_w1_0", prefixes)
-        self.assertIn("tests/unit_test_combined_run/detail_slider_w1_0__other_lora_w2_0", prefixes)
+        self.assertIn("tests/unit_test_combined_run/modelA__detail_slider_w0_5__other_lora_w1_0", prefixes)
+        self.assertIn("tests/unit_test_combined_run/modelA__detail_slider_w1_0__other_lora_w2_0", prefixes)
 
     def test_whole_combination_skipped_if_any_lora_missing(self):
         self.config["loras"] = [
@@ -253,7 +375,7 @@ class RunCombinedModeTests(unittest.TestCase):
         log_files = list(self.runs_dir.glob("unit_test_combined_run_*.csv"))
         with open(log_files[0], newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))
-        self.assertEqual(rows[1][2], "skipped")
+        self.assertEqual(rows[1][3], "skipped")
 
 
 class BuildCombinationsTests(unittest.TestCase):
