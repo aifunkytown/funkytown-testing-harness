@@ -20,6 +20,9 @@ configs/lora-testing-config.json
 # Per-run output logs - local only.
 runs/
 
+# Claude Code project context - local-only, not meant for the public repo.
+CLAUDE.md
+
 # Editor/OS cruft
 .vscode/
 .idea/
