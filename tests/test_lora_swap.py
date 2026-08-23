@@ -10,7 +10,7 @@ def make_lora_node():
             "inputs": {
                 "model": ["36", 0],
                 "clip": ["59", 0],
-                "lora_1": {"on": False, "lora": "futa.safetensors", "strength": 0.9},
+                "lora_1": {"on": False, "lora": "styleA.safetensors", "strength": 0.9},
                 "lora_2": {"on": True, "lora": "detail_slider.safetensors", "strength": 2},
                 "lora_3": {"on": False, "lora": "skindetails.safetensors", "strength": 1},
             },
@@ -52,13 +52,13 @@ class SetSingleLoraTests(unittest.TestCase):
         # lora_2 starts "on": True in the fixture - confirm it gets turned off
         # when a different lora is the target.
         wf = make_lora_node()
-        set_single_lora(wf, "22", "futa.safetensors", 0.5)
+        set_single_lora(wf, "22", "styleA.safetensors", 0.5)
         self.assertFalse(wf["22"]["inputs"]["lora_2"]["on"])
         self.assertTrue(wf["22"]["inputs"]["lora_1"]["on"])
 
     def test_does_not_touch_model_clip_passthrough(self):
         wf = make_lora_node()
-        set_single_lora(wf, "22", "futa.safetensors", 0.5)
+        set_single_lora(wf, "22", "styleA.safetensors", 0.5)
         self.assertEqual(wf["22"]["inputs"]["model"], ["36", 0])
         self.assertEqual(wf["22"]["inputs"]["clip"], ["59", 0])
 
@@ -73,7 +73,7 @@ class SetSingleLoraTests(unittest.TestCase):
     def test_weight_sweep_each_call_independent(self):
         wf = make_lora_node()
         for weight in (0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
-            set_single_lora(wf, "22", "futa.safetensors", weight)
+            set_single_lora(wf, "22", "styleA.safetensors", weight)
             self.assertEqual(wf["22"]["inputs"]["lora_1"]["strength"], weight)
             self.assertTrue(wf["22"]["inputs"]["lora_1"]["on"])
             self.assertFalse(wf["22"]["inputs"]["lora_2"]["on"])
@@ -83,7 +83,7 @@ class SetSingleLoraTests(unittest.TestCase):
 class SetMultipleLorasTests(unittest.TestCase):
     def test_turns_on_all_targets_at_their_own_strength(self):
         wf = make_lora_node()
-        missing = set_multiple_loras(wf, "22", [("futa.safetensors", 0.3), ("skindetails.safetensors", 1.75)])
+        missing = set_multiple_loras(wf, "22", [("styleA.safetensors", 0.3), ("skindetails.safetensors", 1.75)])
         self.assertEqual(missing, [])
         self.assertTrue(wf["22"]["inputs"]["lora_1"]["on"])
         self.assertEqual(wf["22"]["inputs"]["lora_1"]["strength"], 0.3)
@@ -94,20 +94,20 @@ class SetMultipleLorasTests(unittest.TestCase):
         wf = make_lora_node()
         # lora_2 starts "on": True in the fixture - confirm it's turned off
         # since it's not one of the targets this time.
-        set_multiple_loras(wf, "22", [("futa.safetensors", 0.3), ("skindetails.safetensors", 1.75)])
+        set_multiple_loras(wf, "22", [("styleA.safetensors", 0.3), ("skindetails.safetensors", 1.75)])
         self.assertFalse(wf["22"]["inputs"]["lora_2"]["on"])
 
     def test_all_or_nothing_when_one_target_missing(self):
         wf = make_lora_node()
         before = {k: dict(v) for k, v in wf["22"]["inputs"].items() if isinstance(v, dict)}
-        missing = set_multiple_loras(wf, "22", [("futa.safetensors", 0.3), ("does_not_exist.safetensors", 1.0)])
+        missing = set_multiple_loras(wf, "22", [("styleA.safetensors", 0.3), ("does_not_exist.safetensors", 1.0)])
         self.assertEqual(missing, ["does_not_exist.safetensors"])
         after = {k: dict(v) for k, v in wf["22"]["inputs"].items() if isinstance(v, dict)}
         self.assertEqual(before, after)  # nothing touched, including the target that WAS found
 
     def test_does_not_touch_model_clip_passthrough(self):
         wf = make_lora_node()
-        set_multiple_loras(wf, "22", [("futa.safetensors", 0.3)])
+        set_multiple_loras(wf, "22", [("styleA.safetensors", 0.3)])
         self.assertEqual(wf["22"]["inputs"]["model"], ["36", 0])
         self.assertEqual(wf["22"]["inputs"]["clip"], ["59", 0])
 
