@@ -291,6 +291,96 @@ class RunMultiModelTests(unittest.TestCase):
         self.assertEqual(len(self.queued), 0)
 
 
+class RunPromptSweepTests(unittest.TestCase):
+    """"positive_prompts": [...] - every model x LoRA combination run once
+    per prompt in the list."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp_path = Path(self.tmpdir.name)
+
+        self.config = {
+            "name": "unit_test_prompt_sweep",
+            "source_workflow": "krea2_basic_t2i.json",
+            "models": ["modelA.safetensors", "modelB.safetensors"],
+            "positive_prompts": ["a red car", "a blue car"],
+            "server": "http://fake",
+            "loras": [
+                {"lora": "detail_slider.safetensors", "weights": [1.0]},
+            ],
+        }
+        self.config_path = self.tmp_path / "config.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+
+        self.runs_dir = self.tmp_path / "runs"
+        self.queued = []
+
+        def fake_queue_prompt(server, workflow, client_id):
+            self.queued.append((server, copy.deepcopy(workflow), client_id))
+            return {"prompt_id": f"fake-{len(self.queued)}", "node_errors": {}}
+
+        patcher_queue = patch("funkytown_testing_harness.lora_test.queue_prompt", side_effect=fake_queue_prompt)
+        patcher_load_template = patch(
+            "funkytown_testing_harness.lora_test.load_live_template",
+            side_effect=lambda server, source_workflow: make_template(),
+        )
+        patcher_fetch = patch(
+            "funkytown_testing_harness.lora_test.fetch_available_models",
+            return_value={"modelA.safetensors", "modelB.safetensors"},
+        )
+        patcher_runs_dir = patch("funkytown_testing_harness.lora_test.RUNS_DIR", self.runs_dir)
+        patcher_queue.start()
+        patcher_load_template.start()
+        patcher_fetch.start()
+        patcher_runs_dir.start()
+        self.addCleanup(patcher_queue.stop)
+        self.addCleanup(patcher_load_template.stop)
+        self.addCleanup(patcher_fetch.stop)
+        self.addCleanup(patcher_runs_dir.stop)
+
+    def test_queues_every_model_times_every_prompt(self):
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 4)  # 2 models x 1 lora-weight x 2 prompts
+
+    def test_every_prompt_is_applied_to_the_workflow(self):
+        run(self.config_path)
+        prompts_used = {wf["3"]["inputs"]["text"] for _s, wf, _c in self.queued}
+        self.assertEqual(prompts_used, {"a red car", "a blue car"})
+
+    def test_filename_prefix_encodes_prompt_index(self):
+        run(self.config_path)
+        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA__detail_slider_w1_0", prefixes)
+        self.assertIn("tests/unit_test_prompt_sweep/prompt1_modelA__detail_slider_w1_0", prefixes)
+
+    def test_log_csv_gains_prompt_columns(self):
+        run(self.config_path)
+        log_files = list(self.runs_dir.glob("unit_test_prompt_sweep_*.csv"))
+        self.assertEqual(len(log_files), 1)
+        with open(log_files[0], newline="", encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+        self.assertEqual(rows[0][:2], ["Prompt Index", "Prompt"])
+        self.assertEqual(len(rows) - 1, 4)  # header + 4 data rows
+
+    def test_no_positive_prompts_key_behaves_exactly_as_before(self):
+        del self.config["positive_prompts"]
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 2)  # 2 models x 1 lora-weight, no prompt dimension
+        log_files = list(self.runs_dir.glob("unit_test_prompt_sweep_*.csv"))
+        with open(log_files[0], newline="", encoding="utf-8") as f:
+            header = next(csv.reader(f))
+        self.assertEqual(header, ["Model", "LoRAs", "Prompt ID", "Status", "Filename Prefix", "Detail"])
+
+    def test_both_prompt_keys_given_aborts_before_queuing(self):
+        self.config["positive_prompt"] = "a single override"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            run(self.config_path)
+        self.assertEqual(len(self.queued), 0)
+
+
 class RunCombinedModeTests(unittest.TestCase):
     """combine_loras: true - every listed LoRA active together, one run per
     combination across the cartesian product of their weight lists."""
