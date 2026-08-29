@@ -283,5 +283,85 @@ class RunEndToEndTests(unittest.TestCase):
             self.assertEqual(wf["3"]["inputs"]["text"], "a totally different sfw prompt")
 
 
+class RunPromptSweepTests(unittest.TestCase):
+    """"positive_prompts": [...] - every model x KSampler-config combination
+    run once per prompt in the list."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp_path = Path(self.tmpdir.name)
+
+        self.config = {
+            "name": "unit_test_prompt_sweep",
+            "source_workflow": "krea2_basic_t2i.json",
+            "server": "http://fake",
+            "positive_prompts": ["a red car", "a blue car", "a green car"],
+            "models": [
+                {"model": "modelA.safetensors"},
+                {"model": "modelB.safetensors"},
+            ],
+        }
+        self.config_path = self.tmp_path / "config.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+
+        self.runs_dir = self.tmp_path / "runs"
+        self.queued = []
+
+        def fake_queue_prompt(server, workflow, client_id):
+            self.queued.append((server, copy.deepcopy(workflow), client_id))
+            return {"prompt_id": f"fake-{len(self.queued)}", "node_errors": {}}
+
+        patcher_queue = patch("funkytown_testing_harness.run_test.queue_prompt", side_effect=fake_queue_prompt)
+        patcher_load_template = patch(
+            "funkytown_testing_harness.run_test.load_live_template",
+            side_effect=lambda server, source_workflow: make_template(),
+        )
+        patcher_fetch = patch(
+            "funkytown_testing_harness.run_test.fetch_available_models",
+            return_value={"modelA.safetensors", "modelB.safetensors"},
+        )
+        patcher_runs_dir = patch("funkytown_testing_harness.run_test.RUNS_DIR", self.runs_dir)
+        patcher_queue.start()
+        patcher_load_template.start()
+        patcher_fetch.start()
+        patcher_runs_dir.start()
+        self.addCleanup(patcher_queue.stop)
+        self.addCleanup(patcher_load_template.stop)
+        self.addCleanup(patcher_fetch.stop)
+        self.addCleanup(patcher_runs_dir.stop)
+
+    def test_queues_every_model_times_every_prompt(self):
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 6)  # 2 models x 3 prompts
+
+    def test_every_prompt_is_applied_to_the_workflow(self):
+        run(self.config_path)
+        prompts_used = {wf["3"]["inputs"]["text"] for _s, wf, _c in self.queued}
+        self.assertEqual(prompts_used, {"a red car", "a blue car", "a green car"})
+
+    def test_filename_prefix_encodes_prompt_index(self):
+        run(self.config_path)
+        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA", prefixes)
+        self.assertIn("tests/unit_test_prompt_sweep/prompt2_modelB", prefixes)
+
+    def test_log_csv_gains_prompt_columns(self):
+        run(self.config_path)
+        log_files = list(self.runs_dir.glob("unit_test_prompt_sweep_*.csv"))
+        self.assertEqual(len(log_files), 1)
+        with open(log_files[0], newline="", encoding="utf-8") as f:
+            rows = list(csv.reader(f))
+        self.assertEqual(rows[0][:2], ["Prompt Index", "Prompt"])
+        self.assertEqual(len(rows) - 1, 6)  # header + 6 data rows
+
+    def test_both_prompt_keys_given_aborts_before_queuing(self):
+        self.config["positive_prompt"] = "a single override"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        with self.assertRaises(SystemExit):
+            run(self.config_path)
+        self.assertEqual(len(self.queued), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

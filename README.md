@@ -93,6 +93,12 @@ exactly what gets fetched and run.
 - **`positive_prompt`** - optional. Reapplied every run: overwrites the
   positive CLIPTextEncode node's text, regardless of whatever prompt happens
   to be live in ComfyUI at the time.
+- **`positive_prompts`** - optional list of prompt strings, mutually
+  exclusive with `positive_prompt` (the config is rejected if both are
+  given). Sweeps every model/config combination once per prompt - e.g. 2
+  models and 3 prompts queues 6 (or more, with multiple KSampler configs)
+  runs. The log CSV gains `Prompt Index`/`Prompt` columns and each output
+  filename prefix gets a `promptN_` segment, only when this is used.
 - **`models`** - list of model objects, each with:
   - **`model`** - a model filename. The workflow's model-loader node
     (`UNETLoader` for diffusion-only weights like Krea2, or
@@ -198,8 +204,10 @@ controlled by `combine_loras`:
     combination is skipped rather than partially applying the rest.
   - **`weights`** - list of strength values for that LoRA. In isolated mode,
     one run per value; in combined mode, one axis of the cartesian product.
-- `source_workflow`/`positive_prompt`/`server` work exactly as in
-  `run_test.py`.
+- `source_workflow`/`positive_prompt`/`positive_prompts`/`server` work
+  exactly as in `run_test.py` - a prompt sweep is crossed with the model x
+  LoRA-combination space, so 2 models, 4 LoRA combinations, and 3 prompts
+  queues 24 runs.
 
 Output goes to `tests/<name>/<model stem>__<lora filename stem>_w<weight>/...`
 in isolated mode, or `tests/<name>/<model stem>__<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
@@ -235,16 +243,18 @@ Covers `model_swap.py` (finding/repointing model-loader nodes), `lora_swap.py`
 and the config logic in `run_test.py`/`lora_test.py` - KSampler overrides,
 checking models against ComfyUI's live model list, skipping missing
 models/LoRAs, erroring below 2 present models (or a missing single model for
-LoRA testing), and the multi-value expansion (one queued run per
-config/weight, `batch_size` never touched). ComfyUI and the browser are
-fully mocked out, so these run without a server up.
+LoRA testing), the multi-value expansion (one queued run per config/weight,
+`batch_size` never touched), and the `"positive_prompts"` sweep (crossed
+with whatever other axes are configured, mutually exclusive with
+`"positive_prompt"`). ComfyUI and the browser are fully mocked out, so these
+run without a server up.
 
-## Adding a new axis to sweep (e.g. seed, multiple models for LoRA testing)
+## Adding a new axis to sweep (e.g. seed)
 
-Model and KSampler settings (`run_test.py`), and single-LoRA and
-combined-LoRA weight sweeps (`lora_test.py`), are covered. To extend
-further - sweeping seed, or letting `lora_test.py` compare across multiple
-models too - follow the same pattern: a small helper alongside
-`model_swap.py`/`lora_swap.py`, called from `run()` for each combination
-wanted. `comfy_prompt_tools.rerun_prompts_comfyui` already has a reusable
-piece for seed sweeps - `find_seed_inputs`.
+Model and KSampler settings, multiple models for LoRA testing
+(`lora_test.py`'s `"models"` list), single-LoRA and combined-LoRA weight
+sweeps, and a prompt sweep (`"positive_prompts"`, both scripts) are
+covered. To extend further - sweeping seed, for instance - follow the same
+pattern: a small helper alongside `model_swap.py`/`lora_swap.py`, called
+from `run()` for each combination wanted. `comfy_prompt_tools.rerun_prompts_comfyui`
+already has a reusable piece for seed sweeps - `find_seed_inputs`.

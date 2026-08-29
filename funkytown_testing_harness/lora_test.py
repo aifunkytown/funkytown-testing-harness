@@ -47,6 +47,12 @@ Config file format (JSON):
   The run aborts with an error if none of them are present.
 - "positive_prompt" - optional, reapplied every run: overwrites the positive
   CLIPTextEncode node's text.
+- "positive_prompts" - optional list of prompt strings, mutually exclusive
+  with "positive_prompt" (config is rejected if both are given). Sweeps
+  every model/LoRA combination once per prompt in the list - e.g. 2 models,
+  4 LoRA combinations, and 3 prompts queues 24 runs. The CSV log gains
+  "Prompt Index"/"Prompt" columns and each output filename prefix gets a
+  "promptN_" segment, only when this is used.
 - "combine_loras" - optional, default false. See the two LoRA modes above.
 - "loras" - list of LoRA objects, each with:
   - "lora" - filename of a LoRA slot that must already exist in the
@@ -91,7 +97,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import load_live_template, set_positive_prompt
+from funkytown_testing_harness.live_workflow import config_prompts, load_live_template, set_positive_prompt
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -185,9 +191,10 @@ def combo_description(combo):
     return "; ".join(f"{lora}={weight}" for lora, weight in combo)
 
 
-def combo_prefix(name, model, combo):
+def combo_prefix(name, model, combo, prompt_idx=None):
     lora_part = "__".join(f"{Path(lora).stem}_w{weight_label(weight)}" for lora, weight in combo)
-    return f"tests/{name}/{Path(model).stem}__{lora_part}"
+    prompt_part = f"prompt{prompt_idx}_" if prompt_idx is not None else ""
+    return f"tests/{name}/{prompt_part}{Path(model).stem}__{lora_part}"
 
 
 def run(config_path):
@@ -200,6 +207,8 @@ def run(config_path):
     template = build_template(config, server)
 
     present_models = resolve_present_models(config_models(config), template, server)
+    prompts = config_prompts(config)
+    multi_prompt = len(prompts) > 1
 
     lora_node_id = find_power_lora_loader_id(template)
     if not lora_node_id:
@@ -214,48 +223,59 @@ def run(config_path):
     log_path = RUNS_DIR / f"{name}_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
 
     mode = "combined" if combine else "isolated"
+    total_runs = len(present_models) * len(combinations) * len(prompts)
     print(f"Models ({len(present_models)}/{len(config_models(config))}): {', '.join(present_models)}")
     print(f"LoRAs ({len(config['loras'])}): {', '.join(l['lora'] for l in config['loras'])}")
-    print(f"Mode: {mode} - {len(present_models)} model(s) x {len(combinations)} combination(s) "
-          f"= {len(present_models) * len(combinations)} run(s)\n")
+    prompt_summary = f" x {len(prompts)} prompt(s)" if multi_prompt else ""
+    print(f"Mode: {mode} - {len(present_models)} model(s) x {len(combinations)} combination(s)"
+          f"{prompt_summary} = {total_runs} run(s)\n")
+
+    header = ["Model", "LoRAs", "Prompt ID", "Status", "Filename Prefix", "Detail"]
+    if multi_prompt:
+        header = ["Prompt Index", "Prompt"] + header
 
     with open(log_path, "w", newline="", encoding="utf-8") as log_file:
         writer = csv.writer(log_file)
-        writer.writerow(["Model", "LoRAs", "Prompt ID", "Status", "Filename Prefix", "Detail"])
+        writer.writerow(header)
 
-        for model in present_models:
-            for combo in combinations:
-                label = combo_description(combo)
-                wf = copy.deepcopy(template)
-                set_model(wf, model)
-                missing = set_multiple_loras(wf, lora_node_id, combo)
-                if missing:
-                    print(f"[{model}] [{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
-                    writer.writerow([model, label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
-                    continue
+        for p_idx, prompt_text in enumerate(prompts):
+            for model in present_models:
+                for combo in combinations:
+                    label = combo_description(combo)
+                    wf = copy.deepcopy(template)
+                    set_model(wf, model)
+                    if prompt_text:
+                        set_positive_prompt(wf, prompt_text)
+                    missing = set_multiple_loras(wf, lora_node_id, combo)
+                    row_prefix = [p_idx, prompt_text] if multi_prompt else []
 
-                prefix = combo_prefix(name, model, combo)
-                for save_id in save_ids:
-                    wf[save_id]["inputs"]["filename_prefix"] = prefix
+                    if missing:
+                        print(f"[{model}] [{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
+                        writer.writerow(row_prefix + [model, label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
+                        continue
 
-                try:
-                    result = queue_prompt(server, wf, client_id)
-                except urllib.error.URLError as e:
-                    print(f"[{model}] [{label}] Failed to queue: {e}", file=sys.stderr)
-                    writer.writerow([model, label, "", "error", prefix, f"Failed to queue: {e}"])
-                    continue
+                    prefix = combo_prefix(name, model, combo, p_idx if multi_prompt else None)
+                    for save_id in save_ids:
+                        wf[save_id]["inputs"]["filename_prefix"] = prefix
 
-                node_errors = result.get("node_errors")
-                prompt_id = result.get("prompt_id")
-                if node_errors:
-                    print(f"[{model}] [{label}] node errors: {node_errors}")
-                    writer.writerow([model, label, prompt_id or "", "error", prefix, json.dumps(node_errors)])
-                    continue
+                    try:
+                        result = queue_prompt(server, wf, client_id)
+                    except urllib.error.URLError as e:
+                        print(f"[{model}] [{label}] Failed to queue: {e}", file=sys.stderr)
+                        writer.writerow(row_prefix + [model, label, "", "error", prefix, f"Failed to queue: {e}"])
+                        continue
 
-                print(f"[{model}] [{label}] -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
-                writer.writerow([model, label, prompt_id, "queued", prefix, ""])
-                log_file.flush()
-                time.sleep(0.2)
+                    node_errors = result.get("node_errors")
+                    prompt_id = result.get("prompt_id")
+                    if node_errors:
+                        print(f"[{model}] [{label}] node errors: {node_errors}")
+                        writer.writerow(row_prefix + [model, label, prompt_id or "", "error", prefix, json.dumps(node_errors)])
+                        continue
+
+                    print(f"[{model}] [{label}] -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
+                    writer.writerow(row_prefix + [model, label, prompt_id, "queued", prefix, ""])
+                    log_file.flush()
+                    time.sleep(0.2)
 
     print(f"\nAll variants queued. Log written to: {log_path}")
     print("ComfyUI processes its queue in the background - check its window or output folder for results.")

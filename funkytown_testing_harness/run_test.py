@@ -43,6 +43,12 @@ Config file format (JSON):
 - "strip_loras" / "positive_prompt" - optional, reapplied to the freshly
   fetched workflow every run: clears the Power Lora Loader node and/or
   overwrites the positive prompt text.
+- "positive_prompts" - optional list of prompt strings, mutually exclusive
+  with "positive_prompt" (config is rejected if both are given). Sweeps
+  every model/config combination once per prompt in the list - e.g. 2
+  models and 3 prompts queues 6 (or more, with multiple configs) runs. The
+  CSV log gains "Prompt Index"/"Prompt" columns and each output filename
+  prefix gets a "promptN_" segment, only when this is used.
 - "models" - list of model objects, each with:
   - "model" - a model filename. The workflow's model-loader node
     (UNETLoader for diffusion-only weights like Krea2, or
@@ -89,7 +95,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import load_live_template, set_positive_prompt, strip_loras
+from funkytown_testing_harness.live_workflow import config_prompts, load_live_template, set_positive_prompt, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -193,56 +199,70 @@ def run(config_path):
     client_id = str(uuid.uuid4())
 
     present_models = resolve_present_models(config["models"], template, server)
+    prompts = config_prompts(config)
+    multi_prompt = len(prompts) > 1
 
     RUNS_DIR.mkdir(exist_ok=True)
     log_path = RUNS_DIR / f"{name}_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
 
     print(f"Models present ({len(present_models)}/{len(config['models'])}): "
-          f"{', '.join(m['model'] for m in present_models)}\n")
+          f"{', '.join(m['model'] for m in present_models)}")
+    if multi_prompt:
+        print(f"Prompts: {len(prompts)}")
+    print()
+
+    header = ["Model", "KSampler Overrides", "Prompt ID", "Status", "Filename Prefix", "Detail"]
+    if multi_prompt:
+        header = ["Prompt Index", "Prompt"] + header
 
     with open(log_path, "w", newline="", encoding="utf-8") as log_file:
         writer = csv.writer(log_file)
-        writer.writerow(["Model", "KSampler Overrides", "Prompt ID", "Status", "Filename Prefix", "Detail"])
+        writer.writerow(header)
 
-        for entry in present_models:
-            model = entry["model"]
-            configs = entry.get("configs") or [{}]
+        for p_idx, prompt_text in enumerate(prompts):
+            for entry in present_models:
+                model = entry["model"]
+                configs = entry.get("configs") or [{}]
 
-            for i, overrides in enumerate(configs):
-                wf = copy.deepcopy(template)
-                set_model(wf, model)
+                for i, overrides in enumerate(configs):
+                    wf = copy.deepcopy(template)
+                    set_model(wf, model)
+                    if prompt_text:
+                        set_positive_prompt(wf, prompt_text)
 
-                if overrides:
-                    if not ksampler_id:
-                        print(f"[{model}] Warning: KSampler overrides given but no KSampler node found", file=sys.stderr)
-                    else:
-                        apply_ksampler_overrides(wf, ksampler_id, overrides)
+                    if overrides:
+                        if not ksampler_id:
+                            print(f"[{model}] Warning: KSampler overrides given but no KSampler node found", file=sys.stderr)
+                        else:
+                            apply_ksampler_overrides(wf, ksampler_id, overrides)
 
-                suffix = f"_cfg{i}" if len(configs) > 1 else ""
-                prefix = f"tests/{name}/{Path(model).stem}{suffix}"
-                for save_id in save_ids:
-                    wf[save_id]["inputs"]["filename_prefix"] = prefix
+                    suffix = f"_cfg{i}" if len(configs) > 1 else ""
+                    prompt_part = f"prompt{p_idx}_" if multi_prompt else ""
+                    prefix = f"tests/{name}/{prompt_part}{Path(model).stem}{suffix}"
+                    for save_id in save_ids:
+                        wf[save_id]["inputs"]["filename_prefix"] = prefix
 
-                overrides_summary = json.dumps(overrides) if overrides else "(workflow defaults)"
+                    overrides_summary = json.dumps(overrides) if overrides else "(workflow defaults)"
+                    row_prefix = [p_idx, prompt_text] if multi_prompt else []
 
-                try:
-                    result = queue_prompt(server, wf, client_id)
-                except urllib.error.URLError as e:
-                    print(f"[{model}] Failed to queue: {e}", file=sys.stderr)
-                    writer.writerow([model, overrides_summary, "", "error", prefix, f"Failed to queue: {e}"])
-                    continue
+                    try:
+                        result = queue_prompt(server, wf, client_id)
+                    except urllib.error.URLError as e:
+                        print(f"[{model}] Failed to queue: {e}", file=sys.stderr)
+                        writer.writerow(row_prefix + [model, overrides_summary, "", "error", prefix, f"Failed to queue: {e}"])
+                        continue
 
-                node_errors = result.get("node_errors")
-                prompt_id = result.get("prompt_id")
-                if node_errors:
-                    print(f"[{model}] node errors: {node_errors}")
-                    writer.writerow([model, overrides_summary, prompt_id or "", "error", prefix, json.dumps(node_errors)])
-                    continue
+                    node_errors = result.get("node_errors")
+                    prompt_id = result.get("prompt_id")
+                    if node_errors:
+                        print(f"[{model}] node errors: {node_errors}")
+                        writer.writerow(row_prefix + [model, overrides_summary, prompt_id or "", "error", prefix, json.dumps(node_errors)])
+                        continue
 
-                print(f"[{model}] {overrides_summary} -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
-                writer.writerow([model, overrides_summary, prompt_id, "queued", prefix, ""])
-                log_file.flush()
-                time.sleep(0.2)
+                    print(f"[{model}] {overrides_summary} -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
+                    writer.writerow(row_prefix + [model, overrides_summary, prompt_id, "queued", prefix, ""])
+                    log_file.flush()
+                    time.sleep(0.2)
 
     print(f"\nAll variants queued. Log written to: {log_path}")
     print("ComfyUI processes its queue in the background - check its window or output folder for results.")

@@ -123,3 +123,29 @@ def set_positive_prompt(template, text):
         print("  warning: positive_prompt given but no positive prompt node found", file=sys.stderr)
         return
     template[positive_id]["inputs"]["text"] = text
+
+
+def config_prompts(config):
+    """Shared by run_test.py/lora_test.py: return the list of positive-prompt
+    overrides to sweep, one full model/LoRA run per entry. "positive_prompts"
+    (a list) drives a prompt sweep; without it, a one-item [None] list is
+    returned so callers don't need a special case for "no sweep" - None
+    means "leave the prompt as build_template() already set it" (untouched,
+    or once-applied from "positive_prompt", which build_template() itself
+    still handles - unrelated to this function).
+
+    Mutually exclusive with "positive_prompt": build_template() already
+    applies that single string once, directly on the shared template: adding
+    a "positive_prompts" list on top would be ambiguous about which wins, so
+    this rejects the config instead of silently picking one."""
+    if "positive_prompts" not in config:
+        return [None]
+    if config.get("positive_prompt"):
+        sys.exit(
+            "Error: config cannot specify both 'positive_prompt' and 'positive_prompts' - "
+            "use 'positive_prompts' alone for a prompt sweep."
+        )
+    prompts = list(config["positive_prompts"])
+    if not prompts:
+        sys.exit("Error: 'positive_prompts' is present but empty.")
+    return prompts

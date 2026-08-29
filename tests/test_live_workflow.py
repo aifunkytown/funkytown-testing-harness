@@ -4,6 +4,7 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 from funkytown_testing_harness.live_workflow import (
+    config_prompts,
     fetch_live_workflow,
     is_api_format,
     load_live_template,
@@ -78,6 +79,29 @@ class SetPositivePromptTests(unittest.TestCase):
     def test_noop_when_no_positive_node_found(self):
         wf = {"1": {"class_type": "KSampler", "inputs": {}}}
         set_positive_prompt(wf, "anything")  # should not raise
+
+
+class ConfigPromptsTests(unittest.TestCase):
+    def test_no_prompt_keys_returns_single_none(self):
+        self.assertEqual(config_prompts({}), [None])
+
+    def test_positive_prompt_alone_is_not_a_sweep(self):
+        # build_template() handles the single "positive_prompt" case itself,
+        # directly on the shared template - config_prompts() isn't involved
+        # unless "positive_prompts" (the list form) is also present.
+        self.assertEqual(config_prompts({"positive_prompt": "a single prompt"}), [None])
+
+    def test_positive_prompts_list_returned_as_is(self):
+        prompts = ["prompt one", "prompt two", "prompt three"]
+        self.assertEqual(config_prompts({"positive_prompts": prompts}), prompts)
+
+    def test_empty_positive_prompts_list_raises(self):
+        with self.assertRaises(SystemExit):
+            config_prompts({"positive_prompts": []})
+
+    def test_both_keys_given_raises(self):
+        with self.assertRaises(SystemExit):
+            config_prompts({"positive_prompt": "a", "positive_prompts": ["b", "c"]})
 
 
 class FetchLiveWorkflowTests(unittest.TestCase):
