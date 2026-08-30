@@ -34,8 +34,14 @@ pip install playwright
 playwright install chromium
 ```
 
-(The unit tests need nothing beyond the Python standard library - ComfyUI and
-the browser are mocked out there.)
+Building a comparison grid (see below) needs Pillow:
+
+```bash
+pip install Pillow
+```
+
+(The unit tests need nothing beyond the Python standard library plus
+Pillow - ComfyUI and the browser are mocked out there.)
 
 ## Desktop GUI
 
@@ -256,6 +262,22 @@ Each run writes a log CSV to `runs/<name>_<timestamp>.csv` with one row per
 ComfyUI's `prompt_id`, status (`queued`/`error`), the output filename prefix
 used, and any error detail. `runs/` is also gitignored.
 
+## Comparison grids
+
+`funkytown_testing_harness.comparison_grid.build_comparison_grid(log_path,
+comfyui_output_dir, output_path)` builds a single labeled image from a run's
+log: one column per queued row that already has an output image on disk (a
+still-in-progress run just uses whichever ones exist so far), labeled with
+that row's model name (`run_test.py` logs) or LoRA/weight combo
+(`lora_test.py` logs) in a white header band above it, images butted
+directly together with no gaps. Up to 4 columns per row; more than that
+wraps onto additional rows below, each with its own header mirrored
+underneath its images too (so a row's labels are never far from it once
+there's more than one row). Raises `ValueError` if fewer than 2 rows have an
+image yet - nothing meaningful to compare with 0 or 1. This is what powers
+the GUI's Results tab "Create Grid" button; there's no CLI entry point for
+it yet.
+
 ## Running the unit tests
 
 ```bash
@@ -272,7 +294,9 @@ LoRA testing), the multi-value expansion (one queued run per config/weight,
 `batch_size` never touched), and the `"positive_prompts"` sweep (crossed
 with whatever other axes are configured, mutually exclusive with
 `"positive_prompt"`). ComfyUI and the browser are fully mocked out, so these
-run without a server up.
+run without a server up. Also covers `comparison_grid.py` (label formatting,
+row-wrapping past 4 columns with mirrored headers, and image resolution/
+downscaling) using small synthetic PNGs, no real ComfyUI output needed.
 
 ## Adding a new axis to sweep (e.g. seed)
 
