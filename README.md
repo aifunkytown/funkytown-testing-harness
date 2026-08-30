@@ -130,9 +130,10 @@ exactly what gets fetched and run.
 the live workflow currently has is what gets used.
 
 Each variant's output goes to ComfyUI's output folder under
-`tests/<name>/<model filename stem>[_cfg<N>]/...` (the `_cfg<N>` suffix only
-appears when a model has more than one entry under `configs`) so runs are easy
-to tell apart.
+`tests/<name>/<run_id>/<model filename stem>[_cfg<N>]/...` (the `_cfg<N>`
+suffix only appears when a model has more than one entry under `configs`).
+`run_id` is a short random id generated fresh each run, so two runs sharing
+the same `name` land in separate folders instead of comingling images.
 
 ### Example: fetch, strip LoRAs, swap to an SFW prompt, compare two models
 
@@ -226,9 +227,11 @@ unrelated LoRA can still turn it on here.
   LoRA-combination space, so 2 models, 4 LoRA combinations, and 3 prompts
   queues 24 runs.
 
-Output goes to `tests/<name>/<model stem>__<lora filename stem>_w<weight>/...`
-in isolated mode, or `tests/<name>/<model stem>__<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
-(joined with `__`, one segment per LoRA) in combined mode. The run log at
+Output goes to `tests/<name>/<run_id>/<model stem>__<lora filename stem>_w<weight>/...`
+in isolated mode, or `tests/<name>/<run_id>/<model stem>__<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
+(joined with `__`, one segment per LoRA) in combined mode - `run_id` is a
+short random id generated fresh each run, same as `run_test.py`, so two
+runs sharing the same `name` land in separate folders. The run log at
 `runs/<name>_<timestamp>.csv` has one row per (model, combination) pairing,
 with `Model` and `LoRAs` columns describing what ran.
 
