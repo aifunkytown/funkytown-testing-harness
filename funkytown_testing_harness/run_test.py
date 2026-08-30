@@ -69,6 +69,12 @@ Config file format (JSON):
     settings; give multiple entries to run that model once per entry.
 - "server" - optional, defaults to http://127.0.0.1:8000.
 
+Output filename prefix (and so the folder images land in under ComfyUI's
+output directory) is "tests/<name>/<run_id>/<model stem>[_cfgN]" - run_id is
+a short (8 hex char) random id generated fresh each run() call, so two runs
+sharing the same "name" land in separate folders instead of comingling
+their images together.
+
 Usage:
     python -m funkytown_testing_harness.run_test configs/model-testing-config.json
 """
@@ -204,6 +210,7 @@ def run(config_path):
     save_ids = find_save_image_node_ids(template)
     ksampler_id = find_ksampler_node_id(template)
     client_id = str(uuid.uuid4())
+    run_id = uuid.uuid4().hex[:8]
 
     present_models = resolve_present_models(config["models"], template, server)
     prompts = config_prompts(config)
@@ -246,7 +253,7 @@ def run(config_path):
 
                     suffix = f"_cfg{i}" if len(configs) > 1 else ""
                     prompt_part = f"prompt{p_idx}_" if multi_prompt else ""
-                    prefix = f"tests/{name}/{prompt_part}{Path(model).stem}{suffix}"
+                    prefix = f"tests/{name}/{run_id}/{prompt_part}{Path(model).stem}{suffix}"
                     for save_id in save_ids:
                         wf[save_id]["inputs"]["filename_prefix"] = prefix
 

@@ -1,12 +1,19 @@
 import copy
 import csv
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from funkytown_testing_harness.lora_test import build_template, config_models, load_config, resolve_present_models, run
+
+
+def strip_run_id(prefix):
+    """See test_run_test.py's strip_run_id - same per-run random hex id
+    (lora_test.run()'s run_id), same rationale."""
+    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/", r"\1/", prefix)
 
 
 def make_template():
@@ -176,7 +183,7 @@ class RunEndToEndTests(unittest.TestCase):
 
     def test_filename_prefix_encodes_model_lora_and_weight(self):
         run(self.config_path)
-        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
         self.assertIn("tests/unit_test_lora_run/modelA__detail_slider_w0_5", prefixes)
         self.assertIn("tests/unit_test_lora_run/modelA__detail_slider_w1_0", prefixes)
         self.assertIn("tests/unit_test_lora_run/modelA__detail_slider_w1_5", prefixes)
@@ -342,7 +349,7 @@ class RunMultiModelTests(unittest.TestCase):
 
     def test_filename_prefix_encodes_model(self):
         run(self.config_path)
-        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
         self.assertIn("tests/unit_test_multi_model_run/modelA__detail_slider_w0_5", prefixes)
         self.assertIn("tests/unit_test_multi_model_run/modelB__detail_slider_w0_5", prefixes)
 
@@ -419,7 +426,7 @@ class RunPromptSweepTests(unittest.TestCase):
 
     def test_filename_prefix_encodes_prompt_index(self):
         run(self.config_path)
-        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
         self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA__detail_slider_w1_0", prefixes)
         self.assertIn("tests/unit_test_prompt_sweep/prompt1_modelA__detail_slider_w1_0", prefixes)
 
@@ -519,7 +526,7 @@ class RunCombinedModeTests(unittest.TestCase):
 
     def test_filename_prefix_encodes_both_loras(self):
         run(self.config_path)
-        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
         self.assertIn("tests/unit_test_combined_run/modelA__detail_slider_w0_5__other_lora_w1_0", prefixes)
         self.assertIn("tests/unit_test_combined_run/modelA__detail_slider_w1_0__other_lora_w2_0", prefixes)
 

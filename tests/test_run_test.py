@@ -1,6 +1,7 @@
 import copy
 import csv
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,14 @@ from funkytown_testing_harness.run_test import (
     resolve_present_models,
     run,
 )
+
+
+def strip_run_id(prefix):
+    """Prefixes now embed a per-run random hex id (see run_test.run()'s
+    run_id) between "tests/<name>/" and the rest - strip it out so
+    assertions on the rest of the format don't need to know its value,
+    while still confirming it's actually there and 8-hex-char shaped."""
+    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/", r"\1/", prefix)
 
 
 def make_template_with_lora():
@@ -259,10 +268,24 @@ class RunEndToEndTests(unittest.TestCase):
 
     def test_filename_prefix_gets_cfg_suffix_only_when_multiple_configs(self):
         run(self.config_path)
-        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
         self.assertIn("tests/unit_test_run/modelA_cfg0", prefixes)
         self.assertIn("tests/unit_test_run/modelA_cfg1", prefixes)
         self.assertIn("tests/unit_test_run/modelB", prefixes)  # no suffix - only one config
+
+    def test_filename_prefix_shares_one_run_id_per_run(self):
+        run(self.config_path)
+        prefixes = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
+        run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", p).group(1) for p in prefixes}
+        self.assertEqual(len(run_ids), 1)  # every row in one run() call shares the same run_id
+
+    def test_two_separate_runs_get_different_run_ids(self):
+        run(self.config_path)
+        first_run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", wf["6"]["inputs"]["filename_prefix"]).group(1) for _s, wf, _c in self.queued}
+        self.queued.clear()
+        run(self.config_path)
+        second_run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", wf["6"]["inputs"]["filename_prefix"]).group(1) for _s, wf, _c in self.queued}
+        self.assertTrue(first_run_ids.isdisjoint(second_run_ids))
 
     def test_total_queue_calls_match_model_and_config_counts(self):
         run(self.config_path)
@@ -432,7 +455,7 @@ class RunPromptSweepTests(unittest.TestCase):
 
     def test_filename_prefix_encodes_prompt_index(self):
         run(self.config_path)
-        prefixes = {wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued}
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
         self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA", prefixes)
         self.assertIn("tests/unit_test_prompt_sweep/prompt2_modelB", prefixes)
 
