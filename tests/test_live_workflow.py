@@ -4,6 +4,7 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 from funkytown_testing_harness.live_workflow import (
+    apply_lora_rules,
     config_prompts,
     fetch_live_workflow,
     is_api_format,
@@ -79,6 +80,54 @@ class SetPositivePromptTests(unittest.TestCase):
     def test_noop_when_no_positive_node_found(self):
         wf = {"1": {"class_type": "KSampler", "inputs": {}}}
         set_positive_prompt(wf, "anything")  # should not raise
+
+
+class ApplyLoraRulesTests(unittest.TestCase):
+    @patch("funkytown_testing_harness.live_workflow.select_loras")
+    def test_turns_on_matched_lora_slot(self, mock_select):
+        mock_select.return_value = [("some_lora.safetensors", 0.75)]
+        wf = make_template_with_lora()
+        apply_lora_rules(wf)
+        mock_select.assert_called_once_with("original prompt")
+        self.assertTrue(wf["7"]["inputs"]["lora_1"]["on"])
+        self.assertEqual(wf["7"]["inputs"]["lora_1"]["strength"], 0.75)
+
+    @patch("funkytown_testing_harness.live_workflow.select_loras")
+    def test_uses_effective_prompt_text_after_override(self, mock_select):
+        mock_select.return_value = []
+        wf = make_template_with_lora()
+        set_positive_prompt(wf, "an overridden prompt")
+        apply_lora_rules(wf)
+        mock_select.assert_called_once_with("an overridden prompt")
+
+    @patch("funkytown_testing_harness.live_workflow.select_loras")
+    def test_excluded_lora_left_untouched(self, mock_select):
+        mock_select.return_value = [("some_lora.safetensors", 0.75), ("other_lora.safetensors", 0.5)]
+        wf = make_template_with_lora()
+        apply_lora_rules(wf, exclude={"other_lora.safetensors"})
+        self.assertTrue(wf["7"]["inputs"]["lora_1"]["on"])
+        # other_lora started "on" at strength 1.0 - excluded, so untouched.
+        self.assertTrue(wf["7"]["inputs"]["lora_2"]["on"])
+        self.assertEqual(wf["7"]["inputs"]["lora_2"]["strength"], 1.0)
+
+    @patch("funkytown_testing_harness.live_workflow.select_loras")
+    def test_noop_when_no_prompt_text(self, mock_select):
+        wf = {
+            "1": {"class_type": "UNETLoader", "inputs": {}},
+            "2": {"class_type": "KSampler", "inputs": {"positive": ["3", 0]}},
+            "3": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        }
+        apply_lora_rules(wf)
+        mock_select.assert_not_called()
+
+    @patch("funkytown_testing_harness.live_workflow.select_loras")
+    def test_noop_when_no_lora_loader_present(self, mock_select):
+        wf = {
+            "2": {"class_type": "KSampler", "inputs": {"positive": ["3", 0]}},
+            "3": {"class_type": "CLIPTextEncode", "inputs": {"text": "a prompt"}},
+        }
+        apply_lora_rules(wf)  # should not raise
+        mock_select.assert_not_called()
 
 
 class ConfigPromptsTests(unittest.TestCase):

@@ -207,6 +207,75 @@ class RunEndToEndTests(unittest.TestCase):
         self.assertEqual(rows[1][3], "skipped")  # header: Model, LoRAs, Prompt ID, Status, Filename Prefix, Detail
 
 
+class RunLoraRuleRoutingTests(unittest.TestCase):
+    """Confirms run() applies comfy_prompt_tools' keyword LoRA routing on
+    top of each combination's own explicitly-swept LoRA(s), without letting
+    it clobber the exact weight being tested - see live_workflow.
+    apply_lora_rules's exclude param."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp_path = Path(self.tmpdir.name)
+
+        self.config = {
+            "name": "lora_rule_test",
+            "source_workflow": "krea2_basic_t2i.json",
+            "model": "modelA.safetensors",
+            "server": "http://fake",
+            "positive_prompt": "a scene with a furry character",
+            "loras": [{"lora": "detail_slider.safetensors", "weights": [0.5, 1.0]}],
+        }
+        self.config_path = self.tmp_path / "config.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+
+        self.runs_dir = self.tmp_path / "runs"
+        self.queued = []
+
+        def fake_queue_prompt(server, workflow, client_id):
+            self.queued.append((server, copy.deepcopy(workflow), client_id))
+            return {"prompt_id": f"fake-{len(self.queued)}", "node_errors": {}}
+
+        patcher_queue = patch("funkytown_testing_harness.lora_test.queue_prompt", side_effect=fake_queue_prompt)
+        patcher_load_template = patch(
+            "funkytown_testing_harness.lora_test.load_live_template",
+            side_effect=lambda server, source_workflow: make_template(),
+        )
+        patcher_fetch = patch(
+            "funkytown_testing_harness.lora_test.fetch_available_models",
+            return_value={"modelA.safetensors"},
+        )
+        patcher_runs_dir = patch("funkytown_testing_harness.lora_test.RUNS_DIR", self.runs_dir)
+        self.mock_queue_prompt = patcher_queue.start()
+        patcher_load_template.start()
+        patcher_fetch.start()
+        patcher_runs_dir.start()
+        self.addCleanup(patcher_queue.stop)
+        self.addCleanup(patcher_load_template.stop)
+        self.addCleanup(patcher_fetch.stop)
+        self.addCleanup(patcher_runs_dir.stop)
+
+    @patch(
+        "funkytown_testing_harness.live_workflow.select_loras",
+        return_value=[("other_lora.safetensors", 0.75)],
+    )
+    def test_keyword_match_on_an_unrelated_lora_turns_it_on(self, mock_select):
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 2)
+        for _server, wf, _client_id in self.queued:
+            self.assertTrue(wf["22"]["inputs"]["lora_2"]["on"])
+            self.assertEqual(wf["22"]["inputs"]["lora_2"]["strength"], 0.75)
+
+    @patch(
+        "funkytown_testing_harness.live_workflow.select_loras",
+        return_value=[("detail_slider.safetensors", 9.9)],
+    )
+    def test_keyword_match_on_the_swept_lora_itself_is_excluded(self, mock_select):
+        run(self.config_path)
+        strengths = sorted(wf["22"]["inputs"]["lora_1"]["strength"] for _s, wf, _c in self.queued)
+        self.assertEqual(strengths, [0.5, 1.0])  # untouched by the 9.9 keyword match
+
+
 class RunMultiModelTests(unittest.TestCase):
     """"models": [...] - every present model run against every LoRA combination."""
 

@@ -42,7 +42,14 @@ Config file format (JSON):
   overridden below is used exactly as it currently is in ComfyUI.
 - "strip_loras" / "positive_prompt" - optional, reapplied to the freshly
   fetched workflow every run: clears the Power Lora Loader node and/or
-  overwrites the positive prompt text.
+  overwrites the positive prompt text. After these, comfy_prompt_tools'
+  keyword -> LoRA routing (lora_rules.json / lora_rules.local.json) is
+  applied against whatever the effective prompt text ends up being (the
+  override above, or the workflow's own default if none given) - but only
+  a LoRA slot that still structurally exists can be turned on this way, so
+  "strip_loras": true (which removes every slot outright, not just turns
+  them off) leaves nothing for it to act on. Leave strip_loras unset/false
+  if you want keyword-matched LoRAs to actually take effect.
 - "positive_prompts" - optional list of prompt strings, mutually exclusive
   with "positive_prompt" (config is rejected if both are given). Sweeps
   every model/config combination once per prompt in the list - e.g. 2
@@ -95,7 +102,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import config_prompts, load_live_template, set_positive_prompt, strip_loras
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, set_positive_prompt, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -229,6 +236,7 @@ def run(config_path):
                     set_model(wf, model)
                     if prompt_text:
                         set_positive_prompt(wf, prompt_text)
+                    apply_lora_rules(wf)
 
                     if overrides:
                         if not ksampler_id:

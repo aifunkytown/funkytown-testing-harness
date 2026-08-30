@@ -16,6 +16,21 @@ from funkytown_testing_harness.run_test import (
 )
 
 
+def make_template_with_lora():
+    """Same as make_template() but with a Power Lora Loader node added, for
+    exercising the keyword LoRA-routing wiring."""
+    wf = make_template()
+    wf["7"] = {
+        "class_type": "Power Lora Loader (rgthree)",
+        "inputs": {
+            "model": ["1", 0],
+            "clip": ["1", 0],
+            "lora_1": {"on": False, "lora": "some_lora.safetensors", "strength": 0.8},
+        },
+    }
+    return wf
+
+
 def make_template():
     """A minimal but structurally valid API-format workflow: one model loader,
     one KSampler, one SaveImage. batch_size is set to a distinctive value (3)
@@ -281,6 +296,81 @@ class RunEndToEndTests(unittest.TestCase):
         run(self.config_path)
         for _server, wf, _client_id in self.queued:
             self.assertEqual(wf["3"]["inputs"]["text"], "a totally different sfw prompt")
+
+
+class RunLoraRuleRoutingTests(unittest.TestCase):
+    """Confirms run() wires comfy_prompt_tools' keyword LoRA routing into
+    every queued variant, on top of whatever strip_loras/positive_prompt
+    already did - see live_workflow.apply_lora_rules for the unit-level
+    behavior."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp_path = Path(self.tmpdir.name)
+
+        self.config = {
+            "name": "lora_rule_test",
+            "source_workflow": "krea2_basic_t2i.json",
+            "server": "http://fake",
+            "positive_prompt": "a scene with a furry character",
+            "models": [{"model": "modelA.safetensors"}, {"model": "modelB.safetensors"}],
+        }
+        self.config_path = self.tmp_path / "config.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+
+        self.runs_dir = self.tmp_path / "runs"
+        self.queued = []
+
+        def fake_queue_prompt(server, workflow, client_id):
+            self.queued.append((server, copy.deepcopy(workflow), client_id))
+            return {"prompt_id": f"fake-{len(self.queued)}", "node_errors": {}}
+
+        patcher_queue = patch("funkytown_testing_harness.run_test.queue_prompt", side_effect=fake_queue_prompt)
+        patcher_load_template = patch(
+            "funkytown_testing_harness.run_test.load_live_template",
+            side_effect=lambda server, source_workflow: make_template_with_lora(),
+        )
+        patcher_fetch = patch(
+            "funkytown_testing_harness.run_test.fetch_available_models",
+            return_value={"modelA.safetensors", "modelB.safetensors"},
+        )
+        patcher_runs_dir = patch("funkytown_testing_harness.run_test.RUNS_DIR", self.runs_dir)
+        patcher_select = patch(
+            "funkytown_testing_harness.live_workflow.select_loras",
+            return_value=[("some_lora.safetensors", 0.75)],
+        )
+        self.mock_queue_prompt = patcher_queue.start()
+        patcher_load_template.start()
+        patcher_fetch.start()
+        patcher_runs_dir.start()
+        self.mock_select_loras = patcher_select.start()
+        self.addCleanup(patcher_queue.stop)
+        self.addCleanup(patcher_load_template.stop)
+        self.addCleanup(patcher_fetch.stop)
+        self.addCleanup(patcher_runs_dir.stop)
+        self.addCleanup(patcher_select.stop)
+
+    def test_keyword_matched_lora_turned_on(self):
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 2)
+        for _server, wf, _client_id in self.queued:
+            self.assertTrue(wf["7"]["inputs"]["lora_1"]["on"])
+            self.assertEqual(wf["7"]["inputs"]["lora_1"]["strength"], 0.75)
+
+    def test_routes_against_the_effective_prompt_text(self):
+        run(self.config_path)
+        self.mock_select_loras.assert_called_with("a scene with a furry character")
+
+    def test_strip_loras_removes_the_slot_so_routing_has_nothing_to_act_on(self):
+        # strip_loras deletes every lora_N slot outright (not just turns it
+        # off), so a keyword match afterward has no slot left to turn on -
+        # see live_workflow.apply_lora_rules's docstring.
+        self.config["strip_loras"] = True
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        for _server, wf, _client_id in self.queued:
+            self.assertNotIn("lora_1", wf["7"]["inputs"])
 
 
 class RunPromptSweepTests(unittest.TestCase):

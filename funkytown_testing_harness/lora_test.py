@@ -54,6 +54,12 @@ Config file format (JSON):
   "Prompt Index"/"Prompt" columns and each output filename prefix gets a
   "promptN_" segment, only when this is used.
 - "combine_loras" - optional, default false. See the two LoRA modes above.
+  After each combination's own LoRA slot(s) are set, comfy_prompt_tools'
+  keyword -> LoRA routing (lora_rules.json / lora_rules.local.json) is
+  applied against the effective prompt text, same as run_test.py - except
+  it never touches whichever LoRA(s) this specific combination is already
+  testing, so a keyword rule's fixed preset strength can't silently
+  overwrite the exact weight being swept.
 - "loras" - list of LoRA objects, each with:
   - "lora" - filename of a LoRA slot that must already exist in the
     workflow's Power Lora Loader (rgthree) node (added there via ComfyUI's
@@ -97,7 +103,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import config_prompts, load_live_template, set_positive_prompt
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, set_positive_prompt
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -253,6 +259,8 @@ def run(config_path):
                         print(f"[{model}] [{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
                         writer.writerow(row_prefix + [model, label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
                         continue
+
+                    apply_lora_rules(wf, exclude={lora_filename for lora_filename, _weight in combo})
 
                     prefix = combo_prefix(name, model, combo, p_idx if multi_prompt else None)
                     for save_id in save_ids:
