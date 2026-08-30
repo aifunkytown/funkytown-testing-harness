@@ -93,6 +93,15 @@ exactly what gets fetched and run.
 - **`positive_prompt`** - optional. Reapplied every run: overwrites the
   positive CLIPTextEncode node's text, regardless of whatever prompt happens
   to be live in ComfyUI at the time.
+- **Keyword LoRA routing** - after the above, `comfy-prompt-tools`'
+  `rerun_prompts_comfyui.py` keyword -> LoRA rules (`lora_rules.json` /
+  `lora_rules.local.json`) are checked against the effective prompt text
+  (the override above, or whatever's live in ComfyUI if none given) and any
+  matching LoRA is turned on - same rules and matching logic that script
+  uses for a rerun. Not configurable here; it always runs. Only a LoRA slot
+  that still structurally exists can be turned on this way, so `strip_loras:
+  true` (which removes every slot outright) leaves nothing for it to act on
+  - leave `strip_loras` unset/false for keyword-matched LoRAs to take effect.
 - **`positive_prompts`** - optional list of prompt strings, mutually
   exclusive with `positive_prompt` (the config is rejected if both are
   given). Sweeps every model/config combination once per prompt - e.g. 2
@@ -204,6 +213,14 @@ controlled by `combine_loras`:
     combination is skipped rather than partially applying the rest.
   - **`weights`** - list of strength values for that LoRA. In isolated mode,
     one run per value; in combined mode, one axis of the cartesian product.
+
+Same keyword LoRA routing as `run_test.py` (see above) is applied to each
+combination after its own LoRA slot(s) are set - except it never touches
+whichever LoRA(s) that specific combination is already sweeping, so a
+keyword rule's fixed preset strength can't silently overwrite the exact
+weight being tested. Since a combination's *other* slots are only ever
+turned off (not removed - unlike `strip_loras`), a keyword match on an
+unrelated LoRA can still turn it on here.
 - `source_workflow`/`positive_prompt`/`positive_prompts`/`server` work
   exactly as in `run_test.py` - a prompt sweep is crossed with the model x
   LoRA-combination space, so 2 models, 4 LoRA combinations, and 3 prompts

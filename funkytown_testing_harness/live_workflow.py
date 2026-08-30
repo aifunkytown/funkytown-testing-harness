@@ -24,12 +24,12 @@ from pathlib import Path
 # If something (e.g. the GUI, using a custom path from settings) already made
 # comfy_prompt_tools importable, that takes precedence over the sibling guess.
 try:
-    from comfy_prompt_tools.rerun_prompts_comfyui import find_power_lora_loader_id, find_prompt_node_ids
+    from comfy_prompt_tools.rerun_prompts_comfyui import apply_loras, find_power_lora_loader_id, find_prompt_node_ids, select_loras
 except ImportError:
     _COMFY_PROMPT_TOOLS = Path(__file__).resolve().parent.parent.parent / "comfy-prompt-tools"
     sys.path.insert(0, str(_COMFY_PROMPT_TOOLS))
     try:
-        from comfy_prompt_tools.rerun_prompts_comfyui import find_power_lora_loader_id, find_prompt_node_ids
+        from comfy_prompt_tools.rerun_prompts_comfyui import apply_loras, find_power_lora_loader_id, find_prompt_node_ids, select_loras
     except ImportError:
         sys.exit(
             f"Error: could not import comfy_prompt_tools from {_COMFY_PROMPT_TOOLS}.\n"
@@ -123,6 +123,34 @@ def set_positive_prompt(template, text):
         print("  warning: positive_prompt given but no positive prompt node found", file=sys.stderr)
         return
     template[positive_id]["inputs"]["text"] = text
+
+
+def apply_lora_rules(template, exclude=None):
+    """Turn on any comfy_prompt_tools.rerun_prompts_comfyui LORA_RULES-matched
+    LoRA slot, based on whatever the workflow's positive prompt text
+    currently is (an override already applied by the caller, or the
+    workflow's own default, whichever ended up in the node) - the same
+    keyword -> LoRA routing rerun_prompts_comfyui.py applies to a rerun
+    prompt. Only a LoRA slot that still structurally exists in the Power
+    Lora Loader node can be turned on this way - if the caller already ran
+    strip_loras() (which removes every slot outright, not just turns them
+    off), there's nothing left for this to act on.
+
+    exclude is an optional set of LoRA filenames to leave alone - e.g.
+    lora_test.py's own explicitly-swept target(s) for this combination, so
+    a keyword rule's fixed preset strength never overwrites the exact
+    weight being tested."""
+    positive_id, _negative_id = find_prompt_node_ids(template)
+    prompt_text = template[positive_id]["inputs"].get("text", "") if positive_id else ""
+    if not prompt_text:
+        return
+    lora_node_id = find_power_lora_loader_id(template)
+    if not lora_node_id:
+        return
+    matches = select_loras(prompt_text)
+    if exclude:
+        matches = [(name, strength) for name, strength in matches if name not in exclude]
+    apply_loras(template, lora_node_id, matches)
 
 
 def config_prompts(config):
