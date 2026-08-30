@@ -12,8 +12,9 @@ from funkytown_testing_harness.lora_test import build_template, config_models, l
 
 def strip_run_id(prefix):
     """See test_run_test.py's strip_run_id - same per-run random hex id
-    (lora_test.run()'s run_id), same rationale."""
-    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/", r"\1/", prefix)
+    plus per-variant zero-padded queue_index (lora_test.run()'s run_id/
+    queue_index), same rationale."""
+    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/\d{4}_", r"\1/", prefix)
 
 
 def make_template():
