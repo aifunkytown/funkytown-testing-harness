@@ -69,6 +69,12 @@ Config file format (JSON):
   - "weights" - list of strength values for that LoRA.
 - "server" - optional, defaults to http://127.0.0.1:8000.
 
+Output filename prefix (and so the folder images land in under ComfyUI's
+output directory) is "tests/<name>/<run_id>/<model stem>__<lora>_w<weight>...",
+same run_id scheme as run_test.py - a short (8 hex char) random id generated
+fresh each run() call, so two runs sharing the same "name" land in separate
+folders instead of comingling their images together.
+
 Usage:
     python -m funkytown_testing_harness.lora_test configs/lora-testing-config.json
 """
@@ -197,10 +203,10 @@ def combo_description(combo):
     return "; ".join(f"{lora}={weight}" for lora, weight in combo)
 
 
-def combo_prefix(name, model, combo, prompt_idx=None):
+def combo_prefix(name, run_id, model, combo, prompt_idx=None):
     lora_part = "__".join(f"{Path(lora).stem}_w{weight_label(weight)}" for lora, weight in combo)
     prompt_part = f"prompt{prompt_idx}_" if prompt_idx is not None else ""
-    return f"tests/{name}/{prompt_part}{Path(model).stem}__{lora_part}"
+    return f"tests/{name}/{run_id}/{prompt_part}{Path(model).stem}__{lora_part}"
 
 
 def run(config_path):
@@ -222,6 +228,7 @@ def run(config_path):
 
     save_ids = find_save_image_node_ids(template)
     client_id = str(uuid.uuid4())
+    run_id = uuid.uuid4().hex[:8]
 
     combinations = build_combinations(config["loras"], combine)
 
@@ -262,7 +269,7 @@ def run(config_path):
 
                     apply_lora_rules(wf, exclude={lora_filename for lora_filename, _weight in combo})
 
-                    prefix = combo_prefix(name, model, combo, p_idx if multi_prompt else None)
+                    prefix = combo_prefix(name, run_id, model, combo, p_idx if multi_prompt else None)
                     for save_id in save_ids:
                         wf[save_id]["inputs"]["filename_prefix"] = prefix
 
