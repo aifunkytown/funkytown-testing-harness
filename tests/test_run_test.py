@@ -18,11 +18,12 @@ from funkytown_testing_harness.run_test import (
 
 
 def strip_run_id(prefix):
-    """Prefixes now embed a per-run random hex id (see run_test.run()'s
-    run_id) between "tests/<name>/" and the rest - strip it out so
-    assertions on the rest of the format don't need to know its value,
-    while still confirming it's actually there and 8-hex-char shaped."""
-    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/", r"\1/", prefix)
+    """Prefixes now embed a per-run random hex id (run_test.run()'s run_id)
+    and a per-variant zero-padded queue_index between "tests/<name>/" and
+    the rest - strip both out so assertions on the rest of the format
+    don't need to know their values, while still confirming they're
+    actually there and correctly shaped."""
+    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/\d{4}_", r"\1/", prefix)
 
 
 def make_template_with_lora():
@@ -278,6 +279,15 @@ class RunEndToEndTests(unittest.TestCase):
         prefixes = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
         run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", p).group(1) for p in prefixes}
         self.assertEqual(len(run_ids), 1)  # every row in one run() call shares the same run_id
+
+    def test_filename_prefix_queue_index_sorts_in_actual_queue_order(self):
+        # modelA sorts alphabetically before modelB, but modelB is queued
+        # LAST here (2 configs) - queue_index should still reflect the
+        # actual order things were queued in, not model name order.
+        run(self.config_path)
+        by_queue_order = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
+        by_filename_sort = sorted(by_queue_order)
+        self.assertEqual(by_queue_order, by_filename_sort)
 
     def test_two_separate_runs_get_different_run_ids(self):
         run(self.config_path)

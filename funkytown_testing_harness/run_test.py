@@ -70,10 +70,14 @@ Config file format (JSON):
 - "server" - optional, defaults to http://127.0.0.1:8000.
 
 Output filename prefix (and so the folder images land in under ComfyUI's
-output directory) is "tests/<name>/<run_id>/<model stem>[_cfgN]" - run_id is
-a short (8 hex char) random id generated fresh each run() call, so two runs
+output directory) is
+"tests/<name>/<run_id>/<queue_index>_<model stem>[_cfgN]" - run_id is a
+short (8 hex char) random id generated fresh each run() call, so two runs
 sharing the same "name" land in separate folders instead of comingling
-their images together.
+their images together. queue_index is a zero-padded 4-digit counter over
+every variant queued this run (starting at 0001, in queue order), so
+sorting the output folder by filename always matches the order they were
+actually queued in, regardless of how model names alphabetize.
 
 Usage:
     python -m funkytown_testing_harness.run_test configs/model-testing-config.json
@@ -233,12 +237,14 @@ def run(config_path):
         writer = csv.writer(log_file)
         writer.writerow(header)
 
+        queue_index = 0
         for p_idx, prompt_text in enumerate(prompts):
             for entry in present_models:
                 model = entry["model"]
                 configs = entry.get("configs") or [{}]
 
                 for i, overrides in enumerate(configs):
+                    queue_index += 1
                     wf = copy.deepcopy(template)
                     set_model(wf, model)
                     if prompt_text:
@@ -253,7 +259,7 @@ def run(config_path):
 
                     suffix = f"_cfg{i}" if len(configs) > 1 else ""
                     prompt_part = f"prompt{p_idx}_" if multi_prompt else ""
-                    prefix = f"tests/{name}/{run_id}/{prompt_part}{Path(model).stem}{suffix}"
+                    prefix = f"tests/{name}/{run_id}/{queue_index:04d}_{prompt_part}{Path(model).stem}{suffix}"
                     for save_id in save_ids:
                         wf[save_id]["inputs"]["filename_prefix"] = prefix
 
