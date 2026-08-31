@@ -70,25 +70,33 @@ def resolve_row_image(comfyui_output_dir, prefix):
     return matches[0] if matches else None
 
 
-def build_comparison_grid(log_path, comfyui_output_dir, output_path):
+def build_comparison_grid(log_path, comfyui_output_dir, output_path, selected_images=None):
     """Build a comparison grid PNG at output_path - a single row for up to
     MAX_COLUMNS panels, wrapping onto additional rows below for more than
     that (each wrapped row gets its own header, mirrored underneath that
     row's images too, so a row's labels are never far from its images).
-    Raises ValueError if fewer than 2 queued rows currently have an output
-    image on disk - nothing meaningful to compare with 0 or 1."""
+
+    selected_images, if given, restricts the grid to just those image paths
+    (e.g. a caller's own checked/selected subset) - a row whose resolved
+    image isn't in that set is skipped, though its label is still looked up
+    from the log the normal way. None (the default) means every queued row
+    that currently has an image.
+
+    Raises ValueError if fewer than 2 rows end up with an image to include -
+    nothing meaningful to compare with 0 or 1."""
     entries = read_run_rows(Path(log_path))
+    selected_set = {Path(p) for p in selected_images} if selected_images is not None else None
 
     panels = []
     for label, prefix in entries:
         image_path = resolve_row_image(comfyui_output_dir, prefix)
-        if image_path:
+        if image_path and (selected_set is None or image_path in selected_set):
             panels.append((label, image_path))
 
     if len(panels) < 2:
         raise ValueError(
             f"Need at least 2 output images to build a comparison grid - found {len(panels)}. "
-            "The run may still be in progress, or nothing was queued successfully."
+            "The run may still be in progress, nothing was queued successfully, or too few images are selected."
         )
 
     images = [Image.open(path).convert("RGB") for _label, path in panels]
