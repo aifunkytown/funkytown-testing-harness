@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 LABEL_HEIGHT_RATIO = 0.08  # header band height as a fraction of panel width
 MIN_LABEL_HEIGHT = 50
 PANEL_MAX_WIDTH = 400
-MAX_COLUMNS = 4  # more panels than this wrap onto additional rows below
+MAX_COLUMNS = 10  # more panels than this spill into additional output files, not additional rows
 
 
 def _load_font(size):
@@ -70,11 +70,48 @@ def resolve_row_image(comfyui_output_dir, prefix):
     return matches[0] if matches else None
 
 
+def _chunked(items, size):
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+def _render_single_row_grid(panels, output_path):
+    """Render one MAX_COLUMNS-or-fewer-wide single-row grid image to
+    output_path - the images-butted-together-with-a-label-band-above-each
+    layout, no wrapping (that's handled by build_comparison_grid chunking
+    the panels before calling this)."""
+    images = [Image.open(path).convert("RGB") for _label, path in panels]
+    panel_width = min(PANEL_MAX_WIDTH, min(im.width for im in images))
+    resized = [
+        im.resize((panel_width, round(im.height * panel_width / im.width)), Image.LANCZOS)
+        for im in images
+    ]
+    panel_height = max(im.height for im in resized)
+
+    label_height = max(MIN_LABEL_HEIGHT, round(panel_width * LABEL_HEIGHT_RATIO))
+    font = _load_font(round(label_height * 0.5))
+
+    grid = Image.new("RGB", (panel_width * len(resized), label_height + panel_height), "white")
+    draw = ImageDraw.Draw(grid)
+
+    for i, ((label, _path), im) in enumerate(zip(panels, resized)):
+        x = i * panel_width
+        grid.paste(im, (x, label_height))
+        bbox = draw.textbbox((0, 0), label, font=font)
+        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text((x + (panel_width - text_w) / 2, (label_height - text_h) / 2 - bbox[1]), label, fill="black", font=font)
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    grid.save(output_path)
+
+
 def build_comparison_grid(log_path, comfyui_output_dir, output_path, selected_images=None):
-    """Build a comparison grid PNG at output_path - a single row for up to
-    MAX_COLUMNS panels, wrapping onto additional rows below for more than
-    that (each wrapped row gets its own header, mirrored underneath that
-    row's images too, so a row's labels are never far from its images).
+    """Build one or more single-row comparison grid PNGs, up to
+    MAX_COLUMNS panels each - a run with more panels than that produces
+    additional numbered files (output_path's stem gets a "_2", "_3", ...
+    suffix) rather than a taller single image, so each file stays a plain
+    single row. Returns the list of Path objects written, in order
+    (output_path itself is always first).
 
     selected_images, if given, restricts the grid to just those image paths
     (e.g. a caller's own checked/selected subset) - a row whose resolved
@@ -99,41 +136,11 @@ def build_comparison_grid(log_path, comfyui_output_dir, output_path, selected_im
             "The run may still be in progress, nothing was queued successfully, or too few images are selected."
         )
 
-    images = [Image.open(path).convert("RGB") for _label, path in panels]
-    panel_width = min(PANEL_MAX_WIDTH, min(im.width for im in images))
-    resized = [
-        im.resize((panel_width, round(im.height * panel_width / im.width)), Image.LANCZOS)
-        for im in images
-    ]
-    panel_height = max(im.height for im in resized)
-
-    label_height = max(MIN_LABEL_HEIGHT, round(panel_width * LABEL_HEIGHT_RATIO))
-    font = _load_font(round(label_height * 0.5))
-
-    labels = [label for label, _path in panels]
-    columns = min(MAX_COLUMNS, len(resized))
-    num_rows = -(-len(resized) // columns)  # ceil division
-    mirror_header = num_rows > 1
-    row_height = label_height * (2 if mirror_header else 1) + panel_height
-
-    grid = Image.new("RGB", (panel_width * columns, row_height * num_rows), "white")
-    draw = ImageDraw.Draw(grid)
-
-    def draw_label(x, y, label):
-        bbox = draw.textbbox((0, 0), label, font=font)
-        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        draw.text((x + (panel_width - text_w) / 2, y + (label_height - text_h) / 2 - bbox[1]), label, fill="black", font=font)
-
-    for i, (im, label) in enumerate(zip(resized, labels)):
-        row, col = divmod(i, columns)
-        x = col * panel_width
-        row_top = row * row_height
-        draw_label(x, row_top, label)
-        grid.paste(im, (x, row_top + label_height))
-        if mirror_header:
-            draw_label(x, row_top + label_height + panel_height, label)
-
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    grid.save(output_path)
-    return output_path
+    output_paths = []
+    for i, chunk in enumerate(_chunked(panels, MAX_COLUMNS)):
+        chunk_path = output_path if i == 0 else output_path.with_stem(f"{output_path.stem}_{i + 1}")
+        _render_single_row_grid(chunk, chunk_path)
+        output_paths.append(chunk_path)
+
+    return output_paths

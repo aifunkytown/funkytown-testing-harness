@@ -115,7 +115,7 @@ class BuildComparisonGridTests(unittest.TestCase):
         out_path = self.tmpdir / "grid.png"
         result = build_comparison_grid(self.log_path, self.output_dir, out_path)
 
-        self.assertEqual(result, out_path)
+        self.assertEqual(result, [out_path])  # a single file for 3 panels (well under MAX_COLUMNS)
         self.assertTrue(out_path.is_file())
         with Image.open(out_path) as grid:
             self.assertEqual(grid.width, 200 * 3)  # 3 columns, no downscale needed (200 < PANEL_MAX_WIDTH)
@@ -165,52 +165,52 @@ class BuildComparisonGridTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_comparison_grid(self.log_path, self.output_dir, self.tmpdir / "grid.png")
 
-    def test_four_or_fewer_panels_stay_a_single_row(self):
-        rows = [(f"model{i}.safetensors", f"tests/x/000{i}_model{i}", "queued") for i in range(4)]
+    def test_ten_or_fewer_panels_produce_a_single_file(self):
+        rows = [(f"model{i}.safetensors", f"tests/x/00{i:02d}_model{i}", "queued") for i in range(10)]
         write_run_test_log(self.log_path, rows)
-        for i in range(4):
-            make_png(self.output_dir / "tests" / "x" / f"000{i}_model{i}_00001_.png", size=(100, 150))
+        for i in range(10):
+            make_png(self.output_dir / "tests" / "x" / f"00{i:02d}_model{i}_00001_.png", size=(100, 150))
 
         out_path = self.tmpdir / "grid.png"
-        build_comparison_grid(self.log_path, self.output_dir, out_path)
+        result = build_comparison_grid(self.log_path, self.output_dir, out_path)
+        self.assertEqual(result, [out_path])
         with Image.open(out_path) as grid:
-            self.assertEqual(grid.width, 100 * 4)
-            self.assertEqual(grid.height, 150 + 50)  # one label band, no mirrored bottom header
+            self.assertEqual(grid.width, 100 * 10)
+            self.assertEqual(grid.height, 150 + 50)  # one label band, single row
 
-    def test_more_than_four_panels_wrap_to_a_second_row_with_mirrored_header(self):
-        rows = [(f"model{i}.safetensors", f"tests/x/000{i}_model{i}", "queued") for i in range(6)]
+    def test_more_than_ten_panels_spill_into_a_second_file(self):
+        rows = [(f"model{i}.safetensors", f"tests/x/00{i:02d}_model{i}", "queued") for i in range(13)]
         write_run_test_log(self.log_path, rows)
-        for i in range(6):
-            make_png(self.output_dir / "tests" / "x" / f"000{i}_model{i}_00001_.png", size=(100, 150))
+        for i in range(13):
+            make_png(self.output_dir / "tests" / "x" / f"00{i:02d}_model{i}_00001_.png", size=(100, 150))
 
         out_path = self.tmpdir / "grid.png"
-        build_comparison_grid(self.log_path, self.output_dir, out_path)
-        with Image.open(out_path) as grid:
-            self.assertEqual(grid.width, 100 * 4)  # capped at 4 columns
-            # 2 rows, each: label band + panel + mirrored label band underneath
-            self.assertEqual(grid.height, 2 * (150 + 50 + 50))
+        result = build_comparison_grid(self.log_path, self.output_dir, out_path)
 
-    def test_wrapped_row_places_images_by_position_within_its_own_row(self):
-        # 5 panels -> row 0 has columns 0-3, row 1 has just column 0 (index 4).
-        # Confirm the 5th image lands at the start of row 1, not appended
-        # to a nonexistent 5th column of row 0.
-        rows = [(f"model{i}.safetensors", f"tests/x/000{i}_model{i}", "queued") for i in range(5)]
+        expected_second_path = self.tmpdir / "grid_2.png"
+        self.assertEqual(result, [out_path, expected_second_path])
+        self.assertTrue(out_path.is_file())
+        self.assertTrue(expected_second_path.is_file())
+        with Image.open(out_path) as grid1:
+            self.assertEqual(grid1.width, 100 * 10)  # first file: full 10 columns
+        with Image.open(expected_second_path) as grid2:
+            self.assertEqual(grid2.width, 100 * 3)  # second file: the 3 leftovers
+
+    def test_second_file_starts_with_the_correct_leftover_image(self):
+        # 11 panels -> file 1 gets indices 0-9, file 2 gets just index 10.
+        # Confirm the 11th image lands in file 2, not dropped or duplicated.
+        rows = [(f"model{i}.safetensors", f"tests/x/00{i:02d}_model{i}", "queued") for i in range(11)]
         write_run_test_log(self.log_path, rows)
-        colors = ["red", "green", "blue", "yellow", "purple"]
-        for i, color in enumerate(colors):
-            make_png(self.output_dir / "tests" / "x" / f"000{i}_model{i}_00001_.png", size=(20, 20), color=color)
+        for i in range(11):
+            color = "purple" if i == 10 else "red"
+            make_png(self.output_dir / "tests" / "x" / f"00{i:02d}_model{i}_00001_.png", size=(20, 20), color=color)
 
         out_path = self.tmpdir / "grid.png"
-        build_comparison_grid(self.log_path, self.output_dir, out_path)
-        with Image.open(out_path) as grid:
-            label_height = 50
-            row_height = label_height * 2 + 20  # mirrored header, since 2 rows
-            # Sample a pixel from the middle of each panel's image area.
-            row1_y = label_height + 10
-            row2_y = row_height + label_height + 10
-            self.assertEqual(grid.getpixel((10, row1_y)), (255, 0, 0))    # red, row0 col0
-            self.assertEqual(grid.getpixel((30, row1_y)), (0, 128, 0))    # green, row0 col1
-            self.assertEqual(grid.getpixel((10, row2_y)), (128, 0, 128))  # purple, row1 col0 (5th image)
+        result = build_comparison_grid(self.log_path, self.output_dir, out_path)
+        self.assertEqual(len(result), 2)
+        with Image.open(result[1]) as grid2:
+            self.assertEqual(grid2.width, 20)  # exactly 1 leftover panel
+            self.assertEqual(grid2.getpixel((10, 60)), (128, 0, 128))  # purple, the 11th image
 
     def test_selected_images_restricts_which_rows_are_included(self):
         write_run_test_log(self.log_path, [
