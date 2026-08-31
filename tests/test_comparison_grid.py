@@ -212,6 +212,55 @@ class BuildComparisonGridTests(unittest.TestCase):
             self.assertEqual(grid.getpixel((30, row1_y)), (0, 128, 0))    # green, row0 col1
             self.assertEqual(grid.getpixel((10, row2_y)), (128, 0, 128))  # purple, row1 col0 (5th image)
 
+    def test_selected_images_restricts_which_rows_are_included(self):
+        write_run_test_log(self.log_path, [
+            ("modelA.safetensors", "tests/x/0001_modelA", "queued"),
+            ("modelB.safetensors", "tests/x/0002_modelB", "queued"),
+            ("modelC.safetensors", "tests/x/0003_modelC", "queued"),
+        ])
+        img_a = self.output_dir / "tests" / "x" / "0001_modelA_00001_.png"
+        img_b = self.output_dir / "tests" / "x" / "0002_modelB_00001_.png"
+        img_c = self.output_dir / "tests" / "x" / "0003_modelC_00001_.png"
+        make_png(img_a, size=(200, 300))
+        make_png(img_b, size=(200, 300))
+        make_png(img_c, size=(200, 300))
+
+        out_path = self.tmpdir / "grid.png"
+        build_comparison_grid(self.log_path, self.output_dir, out_path, selected_images=[img_a, img_c])
+        with Image.open(out_path) as grid:
+            self.assertEqual(grid.width, 200 * 2)  # only the 2 selected, not all 3 queued
+
+    def test_selected_images_accepts_string_paths_too(self):
+        write_run_test_log(self.log_path, [
+            ("modelA.safetensors", "tests/x/0001_modelA", "queued"),
+            ("modelB.safetensors", "tests/x/0002_modelB", "queued"),
+        ])
+        img_a = self.output_dir / "tests" / "x" / "0001_modelA_00001_.png"
+        img_b = self.output_dir / "tests" / "x" / "0002_modelB_00001_.png"
+        make_png(img_a, size=(200, 300))
+        make_png(img_b, size=(200, 300))
+
+        out_path = self.tmpdir / "grid.png"
+        # Deliberately pass plain strings, not Path objects - a GUI caller
+        # working with Qt item data would naturally have strings.
+        build_comparison_grid(self.log_path, self.output_dir, out_path, selected_images=[str(img_a), str(img_b)])
+        with Image.open(out_path) as grid:
+            self.assertEqual(grid.width, 200 * 2)
+
+    def test_fewer_than_two_selected_images_raises(self):
+        write_run_test_log(self.log_path, [
+            ("modelA.safetensors", "tests/x/0001_modelA", "queued"),
+            ("modelB.safetensors", "tests/x/0002_modelB", "queued"),
+            ("modelC.safetensors", "tests/x/0003_modelC", "queued"),
+        ])
+        img_a = self.output_dir / "tests" / "x" / "0001_modelA_00001_.png"
+        make_png(img_a, size=(200, 300))
+        make_png(self.output_dir / "tests" / "x" / "0002_modelB_00001_.png", size=(200, 300))
+        make_png(self.output_dir / "tests" / "x" / "0003_modelC_00001_.png", size=(200, 300))
+
+        with self.assertRaises(ValueError):
+            build_comparison_grid(self.log_path, self.output_dir, self.tmpdir / "grid.png", selected_images=[img_a])
+
 
 if __name__ == "__main__":
     unittest.main()
