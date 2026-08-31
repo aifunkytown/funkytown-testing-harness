@@ -265,20 +265,21 @@ used, and any error detail. `runs/` is also gitignored.
 ## Comparison grids
 
 `funkytown_testing_harness.comparison_grid.build_comparison_grid(log_path,
-comfyui_output_dir, output_path, selected_images=None)` builds a single
-labeled image from a run's log: one column per queued row that already has
-an output image on disk (a still-in-progress run just uses whichever ones
-exist so far), labeled with that row's model name (`run_test.py` logs) or
-LoRA/weight combo (`lora_test.py` logs) in a white header band above it,
-images butted directly together with no gaps. Up to 4 columns per row; more
-than that wraps onto additional rows below, each with its own header
-mirrored underneath its images too (so a row's labels are never far from it
-once there's more than one row). `selected_images`, if given, restricts the
-grid to just that subset of the run's image paths (a row's label is still
-looked up normally, just skipped if its image isn't in the set) - this is
-how the GUI's Results tab "Create Grid" button only grids whatever's
-checked in its thumbnail gallery, rather than every image in the run.
-Raises `ValueError` if fewer than 2 rows end up included - nothing
+comfyui_output_dir, output_path, selected_images=None)` builds one or more
+single-row labeled images from a run's log: one column per queued row that
+already has an output image on disk (a still-in-progress run just uses
+whichever ones exist so far), labeled with that row's model name
+(`run_test.py` logs) or LoRA/weight combo (`lora_test.py` logs) in a white
+header band above it, images butted directly together with no gaps. Up to
+10 columns per file; more than that spills into additional numbered files
+(`output_path`'s stem gets a `_2`, `_3`, ... suffix) rather than a taller
+image, so every file stays a plain single row - returns the list of paths
+written, `output_path` itself always first. `selected_images`, if given,
+restricts this to just that subset of the run's image paths (a row's label
+is still looked up normally, just skipped if its image isn't in the set) -
+this is how the GUI's Results tab "Create Grid" button only grids
+whatever's checked in its thumbnail gallery, rather than every image in the
+run. Raises `ValueError` if fewer than 2 rows end up included - nothing
 meaningful to compare with 0 or 1. There's no CLI entry point for this yet.
 
 ## Running the unit tests
