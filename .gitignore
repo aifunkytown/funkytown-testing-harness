@@ -12,10 +12,12 @@ dist/
 # positive_prompt - never committed, kept local-only. workflows/ itself is no
 # longer used to store snapshots (workflows are always fetched fresh from
 # ComfyUI - see live_workflow.py) but stays ignored in case anything's ever
-# cached there for debugging.
+# cached there for debugging. All of configs/ is likewise local-only - any
+# test config saved from the GUI or CLI (Save Test..., ad hoc prompt CSVs,
+# etc.) can carry real prompt text - examples/ is the deliberate, vetted-SFW
+# exception meant to be committed.
 workflows/
-configs/model-testing-config.json
-configs/lora-testing-config.json
+configs/
 
 # Per-run output logs - local only.
 runs/
