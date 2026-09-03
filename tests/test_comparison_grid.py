@@ -10,6 +10,7 @@ from funkytown_testing_harness.comparison_grid import (
     build_comparison_grid,
     read_run_rows,
     resolve_row_image,
+    resolve_row_images,
 )
 
 
@@ -94,6 +95,29 @@ class ResolveRowImageTests(unittest.TestCase):
         output_dir = tmpdir / "output"
         result = resolve_row_image(output_dir, "tests/x/does_not_exist")
         self.assertIsNone(result)
+
+    def test_first_of_multiple_batch_images_is_the_default(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        output_dir = tmpdir / "output"
+        make_png(output_dir / "tests" / "x" / "0001_modelA_00001_.png")
+        make_png(output_dir / "tests" / "x" / "0001_modelA_00002_.png")
+        result = resolve_row_image(output_dir, "tests/x/0001_modelA")
+        self.assertEqual(result.name, "0001_modelA_00001_.png")
+
+
+class ResolveRowImagesTests(unittest.TestCase):
+    def test_returns_every_image_in_a_batch_in_order(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        output_dir = tmpdir / "output"
+        make_png(output_dir / "tests" / "x" / "0001_modelA_00002_.png")
+        make_png(output_dir / "tests" / "x" / "0001_modelA_00001_.png")
+        results = resolve_row_images(output_dir, "tests/x/0001_modelA")
+        self.assertEqual([p.name for p in results], ["0001_modelA_00001_.png", "0001_modelA_00002_.png"])
+
+    def test_returns_empty_list_when_missing(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        output_dir = tmpdir / "output"
+        self.assertEqual(resolve_row_images(output_dir, "tests/x/does_not_exist"), [])
 
 
 class BuildComparisonGridTests(unittest.TestCase):
@@ -246,6 +270,49 @@ class BuildComparisonGridTests(unittest.TestCase):
         build_comparison_grid(self.log_path, self.output_dir, out_path, selected_images=[str(img_a), str(img_b)])
         with Image.open(out_path) as grid:
             self.assertEqual(grid.width, 200 * 2)
+
+    def test_deselecting_first_batch_image_falls_through_to_the_next_in_the_same_row(self):
+        # modelA's row has 2 output images (batch_size > 1) - only the
+        # SECOND one is selected. The row must still appear in the grid
+        # using that second image, not be dropped just because its first
+        # image wasn't selected.
+        write_run_test_log(self.log_path, [
+            ("modelA.safetensors", "tests/x/0001_modelA", "queued"),
+            ("modelB.safetensors", "tests/x/0002_modelB", "queued"),
+        ])
+        img_a1 = self.output_dir / "tests" / "x" / "0001_modelA_00001_.png"
+        img_a2 = self.output_dir / "tests" / "x" / "0001_modelA_00002_.png"
+        img_b = self.output_dir / "tests" / "x" / "0002_modelB_00001_.png"
+        make_png(img_a1, size=(20, 20), color="red")
+        make_png(img_a2, size=(20, 20), color="blue")
+        make_png(img_b, size=(20, 20), color="green")
+
+        out_path = self.tmpdir / "grid.png"
+        build_comparison_grid(self.log_path, self.output_dir, out_path, selected_images=[img_a2, img_b])
+        with Image.open(out_path) as grid:
+            self.assertEqual(grid.width, 20 * 2)  # both rows present
+            self.assertEqual(grid.getpixel((10, 60)), (0, 0, 255))  # modelA's column uses the SELECTED (2nd) image, blue
+
+    def test_row_dropped_only_once_none_of_its_batch_images_are_selected(self):
+        write_run_test_log(self.log_path, [
+            ("modelA.safetensors", "tests/x/0001_modelA", "queued"),
+            ("modelB.safetensors", "tests/x/0002_modelB", "queued"),
+            ("modelC.safetensors", "tests/x/0003_modelC", "queued"),
+        ])
+        img_a1 = self.output_dir / "tests" / "x" / "0001_modelA_00001_.png"
+        img_a2 = self.output_dir / "tests" / "x" / "0001_modelA_00002_.png"
+        img_b = self.output_dir / "tests" / "x" / "0002_modelB_00001_.png"
+        img_c = self.output_dir / "tests" / "x" / "0003_modelC_00001_.png"
+        make_png(img_a1, size=(20, 20))
+        make_png(img_a2, size=(20, 20))
+        make_png(img_b, size=(20, 20))
+        make_png(img_c, size=(20, 20))
+
+        # Neither of modelA's batch images is selected - only its row should drop.
+        out_path = self.tmpdir / "grid.png"
+        build_comparison_grid(self.log_path, self.output_dir, out_path, selected_images=[img_b, img_c])
+        with Image.open(out_path) as grid:
+            self.assertEqual(grid.width, 20 * 2)  # only modelB and modelC
 
     def test_fewer_than_two_selected_images_raises(self):
         write_run_test_log(self.log_path, [

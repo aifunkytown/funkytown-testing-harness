@@ -59,15 +59,23 @@ def read_run_rows(log_path):
     ]
 
 
-def resolve_row_image(comfyui_output_dir, prefix):
-    """First image file matching a Filename Prefix under ComfyUI's output
-    folder (ComfyUI appends its own numeric counter/extension), or None if
-    nothing's there yet."""
+def resolve_row_images(comfyui_output_dir, prefix):
+    """Every image file matching a Filename Prefix under ComfyUI's output
+    folder, in filename order (ComfyUI appends its own numeric counter/
+    extension - more than one file shares a prefix when the workflow's
+    batch_size is greater than 1, so one queued row can have a whole set of
+    images). Empty list if nothing's there yet."""
     prefix_path = Path(comfyui_output_dir) / prefix
     if not prefix_path.parent.is_dir():
-        return None
-    matches = sorted(prefix_path.parent.glob(prefix_path.name + "_*"))
-    return matches[0] if matches else None
+        return []
+    return sorted(prefix_path.parent.glob(prefix_path.name + "_*"))
+
+
+def resolve_row_image(comfyui_output_dir, prefix):
+    """First image file matching a Filename Prefix - see resolve_row_images
+    for the full set. None if nothing's there yet."""
+    images = resolve_row_images(comfyui_output_dir, prefix)
+    return images[0] if images else None
 
 
 def _chunked(items, size):
@@ -114,10 +122,14 @@ def build_comparison_grid(log_path, comfyui_output_dir, output_path, selected_im
     (output_path itself is always first).
 
     selected_images, if given, restricts the grid to just those image paths
-    (e.g. a caller's own checked/selected subset) - a row whose resolved
-    image isn't in that set is skipped, though its label is still looked up
-    from the log the normal way. None (the default) means every queued row
-    that currently has an image.
+    (e.g. a caller's own checked/selected subset). A row's own output can be
+    more than one image (batch_size > 1 produces a whole set sharing one
+    Filename Prefix) - the first image in that set that's actually selected
+    is used, so deselecting just the first one falls through to the next
+    image in the same set instead of dropping the row entirely; the row is
+    only skipped once none of its images are selected. Its label is always
+    looked up from the log the normal way regardless. None (the default)
+    means every queued row that currently has an image, always its first.
 
     Raises ValueError if fewer than 2 rows end up with an image to include -
     nothing meaningful to compare with 0 or 1."""
@@ -126,8 +138,12 @@ def build_comparison_grid(log_path, comfyui_output_dir, output_path, selected_im
 
     panels = []
     for label, prefix in entries:
-        image_path = resolve_row_image(comfyui_output_dir, prefix)
-        if image_path and (selected_set is None or image_path in selected_set):
+        row_images = resolve_row_images(comfyui_output_dir, prefix)
+        if selected_set is None:
+            image_path = row_images[0] if row_images else None
+        else:
+            image_path = next((p for p in row_images if p in selected_set), None)
+        if image_path:
             panels.append((label, image_path))
 
     if len(panels) < 2:
