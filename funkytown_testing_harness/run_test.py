@@ -214,7 +214,11 @@ def run(config_path):
     save_ids = find_save_image_node_ids(template)
     ksampler_id = find_ksampler_node_id(template)
     client_id = str(uuid.uuid4())
-    run_id = uuid.uuid4().hex[:8]
+    # Leads with a shortened timestamp (not just a random id) so the output
+    # folder itself says when the run happened and sorts chronologically by
+    # name - the short random suffix still guarantees two runs starting in
+    # the same second never land in the same folder.
+    run_id = f"{datetime.datetime.now():%y%m%d_%H%M%S}_{uuid.uuid4().hex[:4]}"
 
     present_models = resolve_present_models(config["models"], template, server)
     prompts = config_prompts(config)

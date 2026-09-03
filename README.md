@@ -138,9 +138,11 @@ the live workflow currently has is what gets used.
 Each variant's output goes to ComfyUI's output folder under
 `tests/<name>/<run_id>/<queue_index>_<model filename stem>[_cfg<N>]/...`
 (the `_cfg<N>` suffix only appears when a model has more than one entry
-under `configs`). `run_id` is a short random id generated fresh each run,
-so two runs sharing the same `name` land in separate folders instead of
-comingling images. `queue_index` is a zero-padded 4-digit counter over
+under `configs`). `run_id` leads with a shortened timestamp
+(`YYMMDD_HHMMSS`) so the folder itself says when the run happened and
+sorts chronologically by name, plus a short random suffix so two runs
+starting in the same second still can't land in the same folder and
+comingle images. `queue_index` is a zero-padded 4-digit counter over
 every variant queued this run (`0001`, `0002`, ...), so sorting the output
 folder by filename always matches the order things were actually queued
 in, regardless of how model names happen to alphabetize.
@@ -240,9 +242,9 @@ unrelated LoRA can still turn it on here.
 Output goes to `tests/<name>/<run_id>/<queue_index>_<model stem>__<lora filename stem>_w<weight>/...`
 in isolated mode, or `tests/<name>/<run_id>/<queue_index>_<model stem>__<lora1 stem>_w<weight1>__<lora2 stem>_w<weight2>/...`
 (joined with `__`, one segment per LoRA) in combined mode - `run_id` and
-`queue_index` work exactly as in `run_test.py` (see above): a short random
-id per run, plus a zero-padded 4-digit queue-order counter so sorting by
-filename matches actual queue order. The run log at
+`queue_index` work exactly as in `run_test.py` (see above): a shortened
+timestamp plus a short random suffix per run, plus a zero-padded 4-digit
+queue-order counter so sorting by filename matches actual queue order. The run log at
 `runs/<name>_<timestamp>.csv` has one row per (model, combination) pairing,
 with `Model` and `LoRAs` columns describing what ran.
 

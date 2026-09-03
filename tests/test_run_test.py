@@ -18,12 +18,13 @@ from funkytown_testing_harness.run_test import (
 
 
 def strip_run_id(prefix):
-    """Prefixes now embed a per-run random hex id (run_test.run()'s run_id)
-    and a per-variant zero-padded queue_index between "tests/<name>/" and
-    the rest - strip both out so assertions on the rest of the format
-    don't need to know their values, while still confirming they're
-    actually there and correctly shaped."""
-    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/\d{4}_", r"\1/", prefix)
+    """Prefixes now embed a per-run id (run_test.run()'s run_id - a
+    shortened timestamp plus a short random suffix) and a per-variant
+    zero-padded queue_index between "tests/<name>/" and the rest - strip
+    both out so assertions on the rest of the format don't need to know
+    their values, while still confirming they're actually there and
+    correctly shaped."""
+    return re.sub(r"^(tests/[^/]+)/\d{6}_\d{6}_[0-9a-f]{4}/\d{4}_", r"\1/", prefix)
 
 
 def make_template_with_lora():
@@ -277,7 +278,7 @@ class RunEndToEndTests(unittest.TestCase):
     def test_filename_prefix_shares_one_run_id_per_run(self):
         run(self.config_path)
         prefixes = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
-        run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", p).group(1) for p in prefixes}
+        run_ids = {re.match(r"tests/[^/]+/(\d{6}_\d{6}_[0-9a-f]{4})/", p).group(1) for p in prefixes}
         self.assertEqual(len(run_ids), 1)  # every row in one run() call shares the same run_id
 
     def test_filename_prefix_queue_index_sorts_in_actual_queue_order(self):
@@ -291,10 +292,10 @@ class RunEndToEndTests(unittest.TestCase):
 
     def test_two_separate_runs_get_different_run_ids(self):
         run(self.config_path)
-        first_run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", wf["6"]["inputs"]["filename_prefix"]).group(1) for _s, wf, _c in self.queued}
+        first_run_ids = {re.match(r"tests/[^/]+/(\d{6}_\d{6}_[0-9a-f]{4})/", wf["6"]["inputs"]["filename_prefix"]).group(1) for _s, wf, _c in self.queued}
         self.queued.clear()
         run(self.config_path)
-        second_run_ids = {re.match(r"tests/[^/]+/([0-9a-f]{8})/", wf["6"]["inputs"]["filename_prefix"]).group(1) for _s, wf, _c in self.queued}
+        second_run_ids = {re.match(r"tests/[^/]+/(\d{6}_\d{6}_[0-9a-f]{4})/", wf["6"]["inputs"]["filename_prefix"]).group(1) for _s, wf, _c in self.queued}
         self.assertTrue(first_run_ids.isdisjoint(second_run_ids))
 
     def test_total_queue_calls_match_model_and_config_counts(self):
