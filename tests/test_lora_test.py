@@ -14,7 +14,7 @@ def strip_run_id(prefix):
     """See test_run_test.py's strip_run_id - same per-run random hex id
     plus per-variant zero-padded queue_index (lora_test.run()'s run_id/
     queue_index), same rationale."""
-    return re.sub(r"^(tests/[^/]+)/[0-9a-f]{8}/\d{4}_", r"\1/", prefix)
+    return re.sub(r"^(tests/[^/]+)/\d{6}_\d{6}_[0-9a-f]{4}/\d{4}_", r"\1/", prefix)
 
 
 def make_template():
