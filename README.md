@@ -275,12 +275,17 @@ header band above it, images butted directly together with no gaps. Up to
 (`output_path`'s stem gets a `_2`, `_3`, ... suffix) rather than a taller
 image, so every file stays a plain single row - returns the list of paths
 written, `output_path` itself always first. `selected_images`, if given,
-restricts this to just that subset of the run's image paths (a row's label
-is still looked up normally, just skipped if its image isn't in the set) -
-this is how the GUI's Results tab "Create Grid" button only grids
-whatever's checked in its thumbnail gallery, rather than every image in the
-run. Raises `ValueError` if fewer than 2 rows end up included - nothing
-meaningful to compare with 0 or 1. There's no CLI entry point for this yet.
+restricts this to just that subset of the run's image paths - this is how
+the GUI's Results tab "Create Grid" button only grids whatever's checked in
+its thumbnail gallery, rather than every image in the run. A row's own
+output can be more than one image (`batch_size` > 1 produces a whole set
+sharing one Filename Prefix); the first image in that set that's actually
+selected is used, so deselecting just the first one falls through to the
+next image in the same set instead of dropping the row entirely - a row is
+only skipped once none of its images are selected. A row's label is always
+looked up from the log normally regardless. Raises `ValueError` if fewer
+than 2 rows end up included - nothing meaningful to compare with 0 or 1.
+There's no CLI entry point for this yet.
 
 ## Running the unit tests
 
