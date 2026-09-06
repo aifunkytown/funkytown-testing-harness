@@ -32,6 +32,17 @@ def write_lora_test_log(log_path, rows):
             writer.writerow(["modelA.safetensors", loras, "p1" if status == "queued" else "", status, prefix, ""])
 
 
+def write_multi_prompt_run_test_log(log_path, rows):
+    """rows: [(prompt_index, model, filename_prefix), ...], written in
+    whatever order given - a group_by_model run's rows aren't in
+    prompt-index order on disk."""
+    with open(log_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Prompt Index", "Prompt", "Model", "KSampler Overrides", "Prompt ID", "Status", "Filename Prefix", "Detail"])
+        for p_idx, model, prefix in rows:
+            writer.writerow([p_idx, f"prompt {p_idx}", model, "{}", "p1", "queued", prefix, ""])
+
+
 def make_png(path, size=(100, 150), color="red"):
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", size, color).save(path)
@@ -80,6 +91,48 @@ class ReadRunRowsTests(unittest.TestCase):
         ])
         rows = read_run_rows(log_path)
         self.assertEqual(rows, [("modelA", "tests/x/0001_modelA")])
+
+    def test_multi_prompt_log_queued_model_major_is_regrouped_by_prompt(self):
+        # A group_by_model run's rows are queued model-major on disk (every
+        # prompt for modelA, then every prompt for modelB) - read_run_rows
+        # must still return them grouped by prompt (modelA/modelB paired up
+        # per prompt) so the comparison grid lines up the same prompt
+        # across every model side by side, not modelA's whole prompt sweep
+        # followed by modelB's.
+        tmpdir = Path(tempfile.mkdtemp())
+        log_path = tmpdir / "log.csv"
+        write_multi_prompt_run_test_log(log_path, [
+            (0, "modelA.safetensors", "tests/x/0001_prompt0_modelA"),
+            (1, "modelA.safetensors", "tests/x/0002_prompt1_modelA"),
+            (0, "modelB.safetensors", "tests/x/0003_prompt0_modelB"),
+            (1, "modelB.safetensors", "tests/x/0004_prompt1_modelB"),
+        ])
+        rows = read_run_rows(log_path)
+        self.assertEqual(rows, [
+            ("modelA", "tests/x/0001_prompt0_modelA"),
+            ("modelB", "tests/x/0003_prompt0_modelB"),
+            ("modelA", "tests/x/0002_prompt1_modelA"),
+            ("modelB", "tests/x/0004_prompt1_modelB"),
+        ])
+
+    def test_multi_prompt_log_already_prompt_major_is_unaffected(self):
+        # The default (non-group_by_model) queue order is already
+        # prompt-major - regrouping by Prompt Index should be a no-op.
+        tmpdir = Path(tempfile.mkdtemp())
+        log_path = tmpdir / "log.csv"
+        write_multi_prompt_run_test_log(log_path, [
+            (0, "modelA.safetensors", "tests/x/0001_prompt0_modelA"),
+            (0, "modelB.safetensors", "tests/x/0002_prompt0_modelB"),
+            (1, "modelA.safetensors", "tests/x/0003_prompt1_modelA"),
+            (1, "modelB.safetensors", "tests/x/0004_prompt1_modelB"),
+        ])
+        rows = read_run_rows(log_path)
+        self.assertEqual(rows, [
+            ("modelA", "tests/x/0001_prompt0_modelA"),
+            ("modelB", "tests/x/0002_prompt0_modelB"),
+            ("modelA", "tests/x/0003_prompt1_modelA"),
+            ("modelB", "tests/x/0004_prompt1_modelB"),
+        ])
 
 
 class ResolveRowImageTests(unittest.TestCase):

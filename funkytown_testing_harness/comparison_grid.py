@@ -45,11 +45,24 @@ def _clean_label(raw, is_lora_run):
 
 
 def read_run_rows(log_path):
-    """[(label, filename_prefix), ...] in queue order for a runs/*.csv log,
-    skipping rows with no Filename Prefix (skipped/errored rows never
-    produced an image)."""
+    """[(label, filename_prefix), ...] for a runs/*.csv log, skipping rows
+    with no Filename Prefix (skipped/errored rows never produced an
+    image).
+
+    Ordered by Prompt Index when the log has one (a multi-prompt run),
+    rather than raw queue order - a group_by_model run (see run_test.py/
+    lora_test.py) queues model-major, not prompt-major, so raw queue order
+    no longer puts the same prompt's rows across every model next to each
+    other. A stable sort on Prompt Index regroups by prompt while
+    preserving each prompt's own rows in their original relative (per-
+    model) order, so the comparison grid always lines up the same prompt
+    across every model side by side regardless of which way the run was
+    actually queued. A single-prompt log has no Prompt Index column at
+    all, so this is a no-op for it - queue order is the only order."""
     with open(log_path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
+    if rows and "Prompt Index" in rows[0]:
+        rows = sorted(rows, key=lambda r: int(r.get("Prompt Index") or 0))
     is_lora_run = bool(rows) and "LoRAs" in rows[0]
     label_col = "LoRAs" if is_lora_run else "Model"
     return [
