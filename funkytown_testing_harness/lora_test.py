@@ -53,6 +53,14 @@ Config file format (JSON):
   4 LoRA combinations, and 3 prompts queues 24 runs. The CSV log gains
   "Prompt Index"/"Prompt" columns and each output filename prefix gets a
   "promptN_" segment, only when this is used.
+- "group_by_model" - optional, default false. Only matters with
+  "positive_prompts" (2+ prompts) - by default every model is queued once
+  per prompt (prompt-major order), which cycles back through every model
+  on each prompt boundary and so forces ComfyUI to reload the checkpoint
+  model on nearly every queued item. Setting this queues every
+  prompt/combination for one model before moving to the next (model-major
+  order) instead - the model loads once and stays loaded for everything it
+  needs. See iter_variants(). No effect with a single prompt.
 - "combine_loras" - optional, default false. See the two LoRA modes above.
   After each combination's own LoRA slot(s) are set, comfy_prompt_tools'
   keyword -> LoRA routing (lora_rules.json / lora_rules.local.json) is
@@ -213,6 +221,33 @@ def combo_prefix(name, run_id, queue_index, model, combo, prompt_idx=None):
     return f"tests/{name}/{run_id}/{queue_index:04d}_{prompt_part}{Path(model).stem}__{lora_part}"
 
 
+def iter_variants(prompts, present_models, combinations, group_by_model=False):
+    """Yields (p_idx, prompt_text, model, combo) for every variant to queue,
+    in the exact order they'll actually be queued (and so numbered in
+    output filenames/queue_index). Same idea as run_test.py's
+    iter_variants() - see there for the full rationale.
+
+    Default order is prompt-major: every model (and its LoRA combinations)
+    once per prompt, prompt by prompt - with more than one prompt, this
+    cycles back through every model on each prompt boundary, forcing
+    ComfyUI to reload the checkpoint model on nearly every queued item.
+
+    group_by_model=True reorders to model-major instead: every prompt (and
+    each model's own LoRA combinations) for one model, before moving to
+    the next model - only actually changes anything with more than one
+    prompt; with a single prompt the two orders are identical."""
+    if group_by_model:
+        for model in present_models:
+            for combo in combinations:
+                for p_idx, prompt_text in enumerate(prompts):
+                    yield p_idx, prompt_text, model, combo
+    else:
+        for p_idx, prompt_text in enumerate(prompts):
+            for model in present_models:
+                for combo in combinations:
+                    yield p_idx, prompt_text, model, combo
+
+
 def run(config_path):
     config = load_config(config_path)
     server = config.get("server", "http://127.0.0.1:8000")
@@ -225,6 +260,7 @@ def run(config_path):
     present_models = resolve_present_models(config_models(config), template, server)
     prompts = config_prompts(config)
     multi_prompt = len(prompts) > 1
+    group_by_model = bool(config.get("group_by_model"))
 
     lora_node_id = find_power_lora_loader_id(template)
     if not lora_node_id:
@@ -249,7 +285,10 @@ def run(config_path):
     print(f"LoRAs ({len(config['loras'])}): {', '.join(l['lora'] for l in config['loras'])}")
     prompt_summary = f" x {len(prompts)} prompt(s)" if multi_prompt else ""
     print(f"Mode: {mode} - {len(present_models)} model(s) x {len(combinations)} combination(s)"
-          f"{prompt_summary} = {total_runs} run(s)\n")
+          f"{prompt_summary} = {total_runs} run(s)")
+    if multi_prompt and group_by_model:
+        print("Queuing grouped by model (all prompts/combinations per model before moving to the next).")
+    print()
 
     header = ["Model", "LoRAs", "Prompt ID", "Status", "Filename Prefix", "Detail"]
     if multi_prompt:
@@ -259,48 +298,45 @@ def run(config_path):
         writer = csv.writer(log_file)
         writer.writerow(header)
 
-        queue_index = 0
-        for p_idx, prompt_text in enumerate(prompts):
-            for model in present_models:
-                for combo in combinations:
-                    queue_index += 1
-                    label = combo_description(combo)
-                    wf = copy.deepcopy(template)
-                    set_model(wf, model)
-                    if prompt_text:
-                        set_positive_prompt(wf, prompt_text)
-                    missing = set_multiple_loras(wf, lora_node_id, combo)
-                    row_prefix = [p_idx, prompt_text] if multi_prompt else []
+        variants = iter_variants(prompts, present_models, combinations, group_by_model)
+        for queue_index, (p_idx, prompt_text, model, combo) in enumerate(variants, start=1):
+            label = combo_description(combo)
+            wf = copy.deepcopy(template)
+            set_model(wf, model)
+            if prompt_text:
+                set_positive_prompt(wf, prompt_text)
+            missing = set_multiple_loras(wf, lora_node_id, combo)
+            row_prefix = [p_idx, prompt_text] if multi_prompt else []
 
-                    if missing:
-                        print(f"[{model}] [{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
-                        writer.writerow(row_prefix + [model, label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
-                        continue
+            if missing:
+                print(f"[{model}] [{label}] Skipping: no matching LoRA slot for: {', '.join(missing)}", file=sys.stderr)
+                writer.writerow(row_prefix + [model, label, "", "skipped", "", f"No matching LoRA slot for: {', '.join(missing)}"])
+                continue
 
-                    apply_lora_rules(wf, exclude={lora_filename for lora_filename, _weight in combo})
+            apply_lora_rules(wf, exclude={lora_filename for lora_filename, _weight in combo})
 
-                    prefix = combo_prefix(name, run_id, queue_index, model, combo, p_idx if multi_prompt else None)
-                    for save_id in save_ids:
-                        wf[save_id]["inputs"]["filename_prefix"] = prefix
+            prefix = combo_prefix(name, run_id, queue_index, model, combo, p_idx if multi_prompt else None)
+            for save_id in save_ids:
+                wf[save_id]["inputs"]["filename_prefix"] = prefix
 
-                    try:
-                        result = queue_prompt(server, wf, client_id)
-                    except urllib.error.URLError as e:
-                        print(f"[{model}] [{label}] Failed to queue: {e}", file=sys.stderr)
-                        writer.writerow(row_prefix + [model, label, "", "error", prefix, f"Failed to queue: {e}"])
-                        continue
+            try:
+                result = queue_prompt(server, wf, client_id)
+            except urllib.error.URLError as e:
+                print(f"[{model}] [{label}] Failed to queue: {e}", file=sys.stderr)
+                writer.writerow(row_prefix + [model, label, "", "error", prefix, f"Failed to queue: {e}"])
+                continue
 
-                    node_errors = result.get("node_errors")
-                    prompt_id = result.get("prompt_id")
-                    if node_errors:
-                        print(f"[{model}] [{label}] node errors: {node_errors}")
-                        writer.writerow(row_prefix + [model, label, prompt_id or "", "error", prefix, json.dumps(node_errors)])
-                        continue
+            node_errors = result.get("node_errors")
+            prompt_id = result.get("prompt_id")
+            if node_errors:
+                print(f"[{model}] [{label}] node errors: {node_errors}")
+                writer.writerow(row_prefix + [model, label, prompt_id or "", "error", prefix, json.dumps(node_errors)])
+                continue
 
-                    print(f"[{model}] [{label}] -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
-                    writer.writerow(row_prefix + [model, label, prompt_id, "queued", prefix, ""])
-                    log_file.flush()
-                    time.sleep(0.2)
+            print(f"[{model}] [{label}] -> queued as prompt_id={prompt_id}, output prefix '{prefix}'")
+            writer.writerow(row_prefix + [model, label, prompt_id, "queued", prefix, ""])
+            log_file.flush()
+            time.sleep(0.2)
 
     print(f"\nAll variants queued. Log written to: {log_path}")
     print("ComfyUI processes its queue in the background - check its window or output folder for results.")
