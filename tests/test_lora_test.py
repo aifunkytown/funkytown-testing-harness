@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from funkytown_testing_harness.lora_test import build_template, config_models, load_config, resolve_present_models, run
+from funkytown_testing_harness.lora_test import build_template, config_models, iter_variants, load_config, resolve_present_models, run
 
 
 def strip_run_id(prefix):
@@ -456,6 +456,104 @@ class RunPromptSweepTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(self.config_path)
         self.assertEqual(len(self.queued), 0)
+
+
+class IterVariantsTests(unittest.TestCase):
+    """Unit-level coverage of the two orderings iter_variants() can produce -
+    see RunGroupByModelTests below for the same thing through a real run()."""
+
+    def setUp(self):
+        self.prompts = ["p0", "p1", "p2"]
+        self.models = ["modelA.safetensors", "modelB.safetensors"]
+        self.combinations = [[("loraX.safetensors", 1.0)], [("loraX.safetensors", 2.0)]]
+
+    def test_default_is_prompt_major(self):
+        order = [(p_idx, model) for p_idx, _text, model, _combo in iter_variants(self.prompts, self.models, self.combinations)]
+        self.assertEqual(order[:2], [(0, "modelA.safetensors"), (0, "modelA.safetensors")])
+        self.assertEqual(order[2:4], [(0, "modelB.safetensors"), (0, "modelB.safetensors")])
+        self.assertEqual(order[4:6], [(1, "modelA.safetensors"), (1, "modelA.safetensors")])
+
+    def test_group_by_model_is_model_major(self):
+        order = [model for _p, _text, model, _combo in iter_variants(self.prompts, self.models, self.combinations, group_by_model=True)]
+        self.assertEqual(order, ["modelA.safetensors"] * 6 + ["modelB.safetensors"] * 6)
+
+    def test_group_by_model_yields_the_same_variants_just_reordered(self):
+        default_order = list(iter_variants(self.prompts, self.models, self.combinations))
+        grouped_order = list(iter_variants(self.prompts, self.models, self.combinations, group_by_model=True))
+        key = lambda v: (v[0], v[2], v[3])
+        self.assertEqual(sorted(map(key, default_order)), sorted(map(key, grouped_order)))
+
+
+class RunGroupByModelTests(unittest.TestCase):
+    """"group_by_model": true - end to end through run(), confirming the
+    actual queued model sequence only swaps models once instead of on
+    every prompt boundary."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp_path = Path(self.tmpdir.name)
+
+        self.config = {
+            "name": "unit_test_group_by_model",
+            "source_workflow": "krea2_basic_t2i.json",
+            "models": ["modelA.safetensors", "modelB.safetensors"],
+            "positive_prompts": ["a red car", "a blue car", "a green car"],
+            "group_by_model": True,
+            "server": "http://fake",
+            "loras": [
+                {"lora": "detail_slider.safetensors", "weights": [1.0]},
+            ],
+        }
+        self.config_path = self.tmp_path / "config.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+
+        self.runs_dir = self.tmp_path / "runs"
+        self.queued = []
+
+        def fake_queue_prompt(server, workflow, client_id):
+            self.queued.append((server, copy.deepcopy(workflow), client_id))
+            return {"prompt_id": f"fake-{len(self.queued)}", "node_errors": {}}
+
+        patcher_queue = patch("funkytown_testing_harness.lora_test.queue_prompt", side_effect=fake_queue_prompt)
+        patcher_load_template = patch(
+            "funkytown_testing_harness.lora_test.load_live_template",
+            side_effect=lambda server, source_workflow: make_template(),
+        )
+        patcher_fetch = patch(
+            "funkytown_testing_harness.lora_test.fetch_available_models",
+            return_value={"modelA.safetensors", "modelB.safetensors"},
+        )
+        patcher_runs_dir = patch("funkytown_testing_harness.lora_test.RUNS_DIR", self.runs_dir)
+        patcher_queue.start()
+        patcher_load_template.start()
+        patcher_fetch.start()
+        patcher_runs_dir.start()
+        self.addCleanup(patcher_queue.stop)
+        self.addCleanup(patcher_load_template.stop)
+        self.addCleanup(patcher_fetch.stop)
+        self.addCleanup(patcher_runs_dir.stop)
+
+    def test_model_only_changes_once_across_the_whole_run(self):
+        run(self.config_path)
+        models_in_queue_order = [wf["1"]["inputs"]["unet_name"] for _s, wf, _c in self.queued]
+        self.assertEqual(models_in_queue_order, ["modelA.safetensors"] * 3 + ["modelB.safetensors"] * 3)
+
+    def test_still_queues_every_model_times_every_prompt(self):
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 6)  # 2 models x 1 lora-weight x 3 prompts
+
+    def test_queue_index_and_filename_prefix_still_reflect_actual_queue_order(self):
+        run(self.config_path)
+        by_queue_order = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
+        self.assertEqual(by_queue_order, sorted(by_queue_order))
+
+    def test_defaults_to_false_and_preserves_prompt_major_order(self):
+        self.config.pop("group_by_model")
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        models_in_queue_order = [wf["1"]["inputs"]["unet_name"] for _s, wf, _c in self.queued]
+        self.assertEqual(models_in_queue_order, ["modelA.safetensors", "modelB.safetensors"] * 3)
 
 
 class RunCombinedModeTests(unittest.TestCase):
