@@ -14,6 +14,7 @@ which is the common case):
     playwright install chromium
 """
 
+import hashlib
 import json
 import sys
 import urllib.error
@@ -177,3 +178,16 @@ def config_prompts(config):
     if not prompts:
         sys.exit("Error: 'positive_prompts' is present but empty.")
     return prompts
+
+
+def prompt_short_hash(prompt_text):
+    """Short, stable (same input -> same output, every run) hash of a
+    prompt's text, for tagging output filenames. Only needed by
+    run_test.py/lora_test.py's group_by_model=True path: reordering to
+    model-major queuing means the queue_index that normally leads each
+    filename prefix groups images by model when the output folder is
+    sorted by name, not by prompt like the default order does - leading
+    with this hash instead restores "sort by name to see one prompt's
+    images together", now across every model rather than needing
+    group_by_model off to get it."""
+    return hashlib.sha1((prompt_text or "").encode("utf-8")).hexdigest()[:8]

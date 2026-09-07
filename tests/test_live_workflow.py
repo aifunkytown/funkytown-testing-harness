@@ -9,6 +9,7 @@ from funkytown_testing_harness.live_workflow import (
     fetch_live_workflow,
     is_api_format,
     load_live_template,
+    prompt_short_hash,
     set_positive_prompt,
     strip_loras,
 )
@@ -151,6 +152,20 @@ class ConfigPromptsTests(unittest.TestCase):
     def test_both_keys_given_raises(self):
         with self.assertRaises(SystemExit):
             config_prompts({"positive_prompt": "a", "positive_prompts": ["b", "c"]})
+
+
+class PromptShortHashTests(unittest.TestCase):
+    def test_same_text_gives_same_hash(self):
+        self.assertEqual(prompt_short_hash("a red car"), prompt_short_hash("a red car"))
+
+    def test_different_text_gives_different_hash(self):
+        self.assertNotEqual(prompt_short_hash("a red car"), prompt_short_hash("a blue car"))
+
+    def test_is_short(self):
+        self.assertEqual(len(prompt_short_hash("a red car")), 8)
+
+    def test_none_does_not_raise(self):
+        self.assertEqual(len(prompt_short_hash(None)), 8)
 
 
 class FetchLiveWorkflowTests(unittest.TestCase):

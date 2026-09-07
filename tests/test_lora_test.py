@@ -543,10 +543,37 @@ class RunGroupByModelTests(unittest.TestCase):
         run(self.config_path)
         self.assertEqual(len(self.queued), 6)  # 2 models x 1 lora-weight x 3 prompts
 
-    def test_queue_index_and_filename_prefix_still_reflect_actual_queue_order(self):
+    def test_filename_prefix_leads_with_a_prompt_hash(self):
+        # group_by_model queues model-major, so queue_index alone would
+        # group filenames by model instead of by prompt when sorted by
+        # name - a hash of the prompt text leads each prefix instead so
+        # sorting by name groups a prompt's images together across models.
         run(self.config_path)
-        by_queue_order = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
-        self.assertEqual(by_queue_order, sorted(by_queue_order))
+        prefixes = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
+        prompts_used = [wf["3"]["inputs"]["text"] for _s, wf, _c in self.queued]
+        hash_of = dict(zip(prompts_used, (p.split("/")[3].split("_")[0] for p in prefixes)))
+        for prompt, prefix in zip(prompts_used, prefixes):
+            self.assertTrue(prefix.split("/")[3].startswith(hash_of[prompt] + "_"))
+        self.assertEqual(len(set(hash_of.values())), 3)
+
+    def test_sorting_by_filename_groups_each_prompt_across_models(self):
+        run(self.config_path)
+        prefixes = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
+        prompts_used = [wf["3"]["inputs"]["text"] for _s, wf, _c in self.queued]
+        by_prefix = sorted(zip(prefixes, prompts_used))
+        sorted_prompts = [prompt for _prefix, prompt in by_prefix]
+        self.assertEqual(sorted_prompts[0], sorted_prompts[1])
+        self.assertEqual(sorted_prompts[2], sorted_prompts[3])
+        self.assertEqual(sorted_prompts[4], sorted_prompts[5])
+
+    def test_no_prompt_hash_without_group_by_model(self):
+        self.config.pop("group_by_model")
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        prefixes = [wf["6"]["inputs"]["filename_prefix"] for _s, wf, _c in self.queued]
+        for prefix in prefixes:
+            variant_part = prefix.split("/")[3]
+            self.assertRegex(variant_part, r"^\d{4}_")
 
     def test_defaults_to_false_and_preserves_prompt_major_order(self):
         self.config.pop("group_by_model")

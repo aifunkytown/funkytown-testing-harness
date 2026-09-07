@@ -60,7 +60,11 @@ Config file format (JSON):
   model on nearly every queued item. Setting this queues every
   prompt/combination for one model before moving to the next (model-major
   order) instead - the model loads once and stays loaded for everything it
-  needs. See iter_variants(). No effect with a single prompt.
+  needs. See iter_variants(). No effect with a single prompt. Since this
+  order no longer naturally clusters a prompt's images together by
+  queue_index (see below), each filename prefix also gains a short hash of
+  its prompt text ahead of queue_index in this mode - see
+  prompt_short_hash() in live_workflow.py.
 - "combine_loras" - optional, default false. See the two LoRA modes above.
   After each combination's own LoRA slot(s) are set, comfy_prompt_tools'
   keyword -> LoRA routing (lora_rules.json / lora_rules.local.json) is
@@ -85,7 +89,11 @@ char) random id generated fresh each run() call, so two runs sharing the
 same "name" land in separate folders; queue_index a zero-padded 4-digit
 counter over every combination queued this run (starting at 0001, in queue
 order), so sorting the output folder by filename always matches actual
-queue order regardless of how model/LoRA names alphabetize.
+queue order regardless of how model/LoRA names alphabetize - except with
+"group_by_model" and 2+ prompts, where an 8-char prompt hash leads
+queue_index instead (see "group_by_model" above), trading "sorted by name
+matches queue order" for "sorted by name groups each prompt's images
+together across every model".
 
 Usage:
     python -m funkytown_testing_harness.lora_test configs/lora-testing-config.json
@@ -121,7 +129,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, set_positive_prompt
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, prompt_short_hash, set_positive_prompt
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -215,10 +223,16 @@ def combo_description(combo):
     return "; ".join(f"{lora}={weight}" for lora, weight in combo)
 
 
-def combo_prefix(name, run_id, queue_index, model, combo, prompt_idx=None):
+def combo_prefix(name, run_id, queue_index, model, combo, prompt_idx=None, prompt_hash=None):
+    """prompt_hash (see prompt_short_hash() in live_workflow.py), if given,
+    leads the prefix ahead of queue_index - only passed by run() when
+    group_by_model reordered queuing to model-major, so that sorting the
+    output folder by filename groups each prompt's images together across
+    every model instead of matching (now model-major) queue order."""
     lora_part = "__".join(f"{Path(lora).stem}_w{weight_label(weight)}" for lora, weight in combo)
     prompt_part = f"prompt{prompt_idx}_" if prompt_idx is not None else ""
-    return f"tests/{name}/{run_id}/{queue_index:04d}_{prompt_part}{Path(model).stem}__{lora_part}"
+    hash_part = f"{prompt_hash}_" if prompt_hash else ""
+    return f"tests/{name}/{run_id}/{hash_part}{queue_index:04d}_{prompt_part}{Path(model).stem}__{lora_part}"
 
 
 def iter_variants(prompts, present_models, combinations, group_by_model=False):
@@ -315,7 +329,8 @@ def run(config_path):
 
             apply_lora_rules(wf, exclude={lora_filename for lora_filename, _weight in combo})
 
-            prefix = combo_prefix(name, run_id, queue_index, model, combo, p_idx if multi_prompt else None)
+            prompt_hash = prompt_short_hash(prompt_text) if (multi_prompt and group_by_model) else None
+            prefix = combo_prefix(name, run_id, queue_index, model, combo, p_idx if multi_prompt else None, prompt_hash)
             for save_id in save_ids:
                 wf[save_id]["inputs"]["filename_prefix"] = prefix
 
