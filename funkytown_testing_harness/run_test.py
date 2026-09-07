@@ -64,7 +64,10 @@ Config file format (JSON):
   prompt/config for one model before moving to the next (model-major
   order) instead - the model loads once and stays loaded for everything
   it needs, cutting down how often ComfyUI has to swap models. See
-  iter_variants(). No effect with a single prompt.
+  iter_variants(). No effect with a single prompt. Since this order no
+  longer naturally clusters a prompt's images together by queue_index (see
+  below), each filename prefix also gains a short hash of its prompt text
+  ahead of queue_index in this mode - see prompt_short_hash().
 - "models" - list of model objects, each with:
   - "model" - a model filename. The workflow's model-loader node
     (UNETLoader for diffusion-only weights like Krea2, or
@@ -86,7 +89,11 @@ sharing the same "name" land in separate folders instead of comingling
 their images together. queue_index is a zero-padded 4-digit counter over
 every variant queued this run (starting at 0001, in queue order), so
 sorting the output folder by filename always matches the order they were
-actually queued in, regardless of how model names alphabetize.
+actually queued in, regardless of how model names alphabetize - except
+with "group_by_model" and 2+ prompts, where an 8-char prompt hash leads
+queue_index instead (see "group_by_model" above and prompt_short_hash() in
+live_workflow.py), trading "sorted by name matches queue order" for
+"sorted by name groups each prompt's images together across every model".
 
 Usage:
     python -m funkytown_testing_harness.run_test configs/model-testing-config.json
@@ -121,7 +128,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, set_positive_prompt, strip_loras
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, prompt_short_hash, set_positive_prompt, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -302,7 +309,14 @@ def run(config_path):
 
             suffix = f"_cfg{i}" if len(configs) > 1 else ""
             prompt_part = f"prompt{p_idx}_" if multi_prompt else ""
-            prefix = f"tests/{name}/{run_id}/{queue_index:04d}_{prompt_part}{Path(model).stem}{suffix}"
+            # group_by_model reorders queuing to model-major, so the
+            # queue_index that otherwise leads each prefix would group
+            # filenames by model when sorted by name instead of by prompt -
+            # leading with a short hash of the prompt text here restores
+            # "sort by name to group one prompt's images together" (see
+            # prompt_short_hash()).
+            hash_part = f"{prompt_short_hash(prompt_text)}_" if (multi_prompt and group_by_model) else ""
+            prefix = f"tests/{name}/{run_id}/{hash_part}{queue_index:04d}_{prompt_part}{Path(model).stem}{suffix}"
             for save_id in save_ids:
                 wf[save_id]["inputs"]["filename_prefix"] = prefix
 
