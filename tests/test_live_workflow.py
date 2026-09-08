@@ -7,10 +7,13 @@ from funkytown_testing_harness.live_workflow import (
     apply_lora_rules,
     config_prompts,
     fetch_live_workflow,
+    find_ksampler_node_id,
     is_api_format,
     load_live_template,
     prompt_short_hash,
+    random_seed,
     set_positive_prompt,
+    set_seed,
     strip_loras,
 )
 
@@ -166,6 +169,45 @@ class PromptShortHashTests(unittest.TestCase):
 
     def test_none_does_not_raise(self):
         self.assertEqual(len(prompt_short_hash(None)), 8)
+
+
+class FindKsamplerNodeIdTests(unittest.TestCase):
+    def test_finds_ksampler(self):
+        wf = {
+            "1": {"class_type": "UNETLoader", "inputs": {}},
+            "2": {"class_type": "KSampler", "inputs": {"seed": 1}},
+        }
+        self.assertEqual(find_ksampler_node_id(wf), "2")
+
+    def test_returns_none_when_absent(self):
+        wf = {"1": {"class_type": "SaveImage", "inputs": {}}}
+        self.assertIsNone(find_ksampler_node_id(wf))
+
+
+class RandomSeedTests(unittest.TestCase):
+    def test_returns_an_int_in_ksampler_range(self):
+        seed = random_seed()
+        self.assertIsInstance(seed, int)
+        self.assertGreaterEqual(seed, 0)
+        self.assertLessEqual(seed, 2**64 - 1)
+
+    def test_calls_are_not_all_the_same(self):
+        # Not a proof of randomness, just a smoke check that this isn't
+        # accidentally returning a constant.
+        seeds = {random_seed() for _ in range(20)}
+        self.assertGreater(len(seeds), 1)
+
+
+class SetSeedTests(unittest.TestCase):
+    def test_sets_seed_on_ksampler_node(self):
+        wf = {"2": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+        set_seed(wf, 12345)
+        self.assertEqual(wf["2"]["inputs"]["seed"], 12345)
+
+    def test_noop_when_no_ksampler_node(self):
+        wf = {"1": {"class_type": "SaveImage", "inputs": {}}}
+        set_seed(wf, 12345)  # must not raise
+        self.assertNotIn("seed", wf["1"]["inputs"])
 
 
 class FetchLiveWorkflowTests(unittest.TestCase):

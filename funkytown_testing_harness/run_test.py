@@ -79,7 +79,13 @@ Config file format (JSON):
     prompts against one model rather than comparing several.
   - "configs" - optional list of KSampler overrides (seed, steps, cfg,
     sampler_name, scheduler, denoise). Omit for the workflow's own KSampler
-    settings; give multiple entries to run that model once per entry.
+    settings, EXCEPT seed - every prompt gets its own fresh random seed
+    (see random_seed() in live_workflow.py), shared by every model/config
+    tested against that specific prompt so the model/config is the only
+    thing that changes between them, regardless of whatever numeric seed
+    the live-fetched workflow happens to have. A config can still
+    explicitly set "seed" to override that for just its own entries; give
+    multiple entries to run that model once per entry.
 - "server" - optional, defaults to http://127.0.0.1:8000.
 
 Output filename prefix (and so the folder images land in under ComfyUI's
@@ -129,7 +135,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, prompt_short_hash, set_positive_prompt, strip_loras
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -153,13 +159,6 @@ def build_template(config, server):
         set_positive_prompt(template, config["positive_prompt"])
 
     return template
-
-
-def find_ksampler_node_id(workflow):
-    for node_id, node in workflow.items():
-        if "KSampler" in node.get("class_type", ""):
-            return node_id
-    return None
 
 
 def fetch_available_models(server, class_type, field):
@@ -271,6 +270,9 @@ def run(config_path):
     prompts = config_prompts(config)
     multi_prompt = len(prompts) > 1
     group_by_model = bool(config.get("group_by_model"))
+    # One random seed per prompt (not per queued variant, and not shared
+    # across prompts either) - see random_seed()'s docstring.
+    prompt_seeds = [random_seed() for _ in prompts]
 
     RUNS_DIR.mkdir(exist_ok=True)
     log_path = RUNS_DIR / f"{name}_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
@@ -301,6 +303,7 @@ def run(config_path):
             if prompt_text:
                 set_positive_prompt(wf, prompt_text)
             apply_lora_rules(wf)
+            set_seed(wf, prompt_seeds[p_idx])  # before overrides, so an explicit "seed" in a config below still wins
 
             if overrides:
                 if not ksampler_id:

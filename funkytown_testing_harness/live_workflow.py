@@ -16,6 +16,7 @@ which is the common case):
 
 import hashlib
 import json
+import random
 import sys
 import urllib.error
 import urllib.parse
@@ -178,6 +179,43 @@ def config_prompts(config):
     if not prompts:
         sys.exit("Error: 'positive_prompts' is present but empty.")
     return prompts
+
+
+def find_ksampler_node_id(workflow):
+    for node_id, node in workflow.items():
+        if "KSampler" in node.get("class_type", ""):
+            return node_id
+    return None
+
+
+def random_seed():
+    """A fresh random seed value (full range ComfyUI's own KSampler
+    accepts - 0 to 2**64-1, same as its "randomize after generate"
+    control) - a plain value, not tied to any particular workflow. See
+    set_seed().
+
+    Shared by run_test.py/lora_test.py: called once per prompt (not once
+    per queued variant) at the start of a run, so every model/config/LoRA
+    combination tested against the SAME prompt gets the SAME seed -
+    isolating whatever's actually being compared (model, KSampler
+    settings, LoRA weight) as the only variable, rather than also
+    confounding it with a different random seed every time. A different
+    prompt in the same run - or the same prompt in a later run() call -
+    still gets its own fresh one. Without any of this, every variant in a
+    run/sweep would instead reuse whatever static numeric seed the
+    live-fetched workflow's KSampler happened to have serialized (a value
+    ComfyUI's "randomize after generate" never actually touches - that's
+    a frontend-only widget setting, never reflected in the exported
+    API-format workflow)."""
+    return random.randint(0, 2**64 - 1)
+
+
+def set_seed(workflow, seed):
+    """Sets `seed` on workflow's own KSampler node, if one is present -
+    silently does nothing otherwise. See random_seed()."""
+    node_id = find_ksampler_node_id(workflow)
+    if node_id:
+        workflow[node_id]["inputs"]["seed"] = seed
 
 
 def prompt_short_hash(prompt_text):

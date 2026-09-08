@@ -367,6 +367,14 @@ class RunMultiModelTests(unittest.TestCase):
             run(self.config_path)
         self.assertEqual(len(self.queued), 0)
 
+    def test_every_queued_variant_shares_the_single_implicit_prompt_s_seed(self):
+        # No "positive_prompts" sweep here - a single implicit prompt, so
+        # every model x LoRA-weight combination should land on the exact
+        # same random seed.
+        run(self.config_path)
+        seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertEqual(len(seeds), 1)
+
 
 class RunPromptSweepTests(unittest.TestCase):
     """"positive_prompts": [...] - every model x LoRA combination run once
@@ -456,6 +464,28 @@ class RunPromptSweepTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(self.config_path)
         self.assertEqual(len(self.queued), 0)
+
+    def test_every_model_gets_the_same_seed_for_the_same_prompt(self):
+        run(self.config_path)
+        seed_by_prompt = {}
+        for _s, wf, _c in self.queued:
+            prompt = wf["3"]["inputs"]["text"]
+            seed = wf["2"]["inputs"]["seed"]
+            seed_by_prompt.setdefault(prompt, set()).add(seed)
+        self.assertTrue(all(len(seeds) == 1 for seeds in seed_by_prompt.values()))
+
+    def test_different_prompts_get_different_seeds(self):
+        run(self.config_path)
+        seed_by_prompt = {wf["3"]["inputs"]["text"]: wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertEqual(len(set(seed_by_prompt.values())), 2)  # 2 distinct prompts, 2 distinct seeds
+
+    def test_a_later_run_gets_fresh_seeds(self):
+        run(self.config_path)
+        first_run_seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.queued.clear()
+        run(self.config_path)
+        second_run_seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertTrue(first_run_seeds.isdisjoint(second_run_seeds))
 
 
 class IterVariantsTests(unittest.TestCase):

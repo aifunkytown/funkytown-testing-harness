@@ -16,7 +16,12 @@ Every present model is run against every LoRA combination - e.g. 2 models
 and 4 LoRA combinations queues all 8 pairings.
 
 The source workflow is always fetched fresh from ComfyUI and converted on
-every run (see live_workflow.py), same as run_test.py.
+every run (see live_workflow.py), same as run_test.py. Every prompt also
+gets its own fresh random seed (random_seed() in live_workflow.py), shared
+by every model/LoRA combination tested against that specific prompt so the
+combination is the only thing that changes between them - without this,
+every variant in the sweep would instead reuse whatever static numeric
+seed the live-fetched workflow happened to have.
 
 There is no pass/fail here. This submits each variant to ComfyUI and logs what
 was queued (model, LoRA(s) and weight(s), prompt_id, output filename prefix)
@@ -129,7 +134,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, prompt_short_hash, set_positive_prompt
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -275,6 +280,9 @@ def run(config_path):
     prompts = config_prompts(config)
     multi_prompt = len(prompts) > 1
     group_by_model = bool(config.get("group_by_model"))
+    # One random seed per prompt (not per queued variant, and not shared
+    # across prompts either) - see random_seed()'s docstring.
+    prompt_seeds = [random_seed() for _ in prompts]
 
     lora_node_id = find_power_lora_loader_id(template)
     if not lora_node_id:
@@ -319,6 +327,7 @@ def run(config_path):
             set_model(wf, model)
             if prompt_text:
                 set_positive_prompt(wf, prompt_text)
+            set_seed(wf, prompt_seeds[p_idx])
             missing = set_multiple_loras(wf, lora_node_id, combo)
             row_prefix = [p_idx, prompt_text] if multi_prompt else []
 

@@ -344,6 +344,24 @@ class RunEndToEndTests(unittest.TestCase):
         for _server, wf, _client_id in self.queued:
             self.assertEqual(wf["3"]["inputs"]["text"], "a totally different sfw prompt")
 
+    def test_every_queued_variant_shares_the_single_implicit_prompt_s_seed(self):
+        # No "positive_prompts" sweep here - a single implicit prompt, so
+        # every one of modelA's 2 configs and modelB's 1 (workflow-default)
+        # run should all land on the exact same random seed.
+        run(self.config_path)
+        seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertEqual(len(seeds), 1)
+
+    def test_explicit_seed_in_a_config_overrides_the_random_one(self):
+        self.config["models"][0]["configs"][0]["seed"] = 999999
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertIn(999999, seeds)
+        # The other 2 (unoverridden) variants still share the random one -
+        # 999999 plus exactly one other value, not scattered across 3.
+        self.assertEqual(len(seeds), 2)
+
 
 class RunLoraRuleRoutingTests(unittest.TestCase):
     """Confirms run() wires comfy_prompt_tools' keyword LoRA routing into
@@ -498,6 +516,30 @@ class RunPromptSweepTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run(self.config_path)
         self.assertEqual(len(self.queued), 0)
+
+    def test_every_model_gets_the_same_seed_for_the_same_prompt(self):
+        run(self.config_path)
+        seed_by_prompt = {}
+        for _s, wf, _c in self.queued:
+            prompt = wf["3"]["inputs"]["text"]
+            seed = wf["2"]["inputs"]["seed"]
+            seed_by_prompt.setdefault(prompt, set()).add(seed)
+        # Each prompt's set of seeds (across both models) has exactly one
+        # member - modelA and modelB agreed on the same seed per prompt.
+        self.assertTrue(all(len(seeds) == 1 for seeds in seed_by_prompt.values()))
+
+    def test_different_prompts_get_different_seeds(self):
+        run(self.config_path)
+        seed_by_prompt = {wf["3"]["inputs"]["text"]: wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertEqual(len(set(seed_by_prompt.values())), 3)  # 3 distinct prompts, 3 distinct seeds
+
+    def test_a_later_run_gets_fresh_seeds(self):
+        run(self.config_path)
+        first_run_seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.queued.clear()
+        run(self.config_path)
+        second_run_seeds = {wf["2"]["inputs"]["seed"] for _s, wf, _c in self.queued}
+        self.assertTrue(first_run_seeds.isdisjoint(second_run_seeds))
 
 
 class IterVariantsTests(unittest.TestCase):
