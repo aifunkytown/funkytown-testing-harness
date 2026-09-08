@@ -55,7 +55,17 @@ Config file format (JSON):
   every model/config combination once per prompt in the list - e.g. 2
   models and 3 prompts queues 6 (or more, with multiple configs) runs. The
   CSV log gains "Prompt Index"/"Prompt" columns and each output filename
-  prefix gets a "promptN_" segment, only when this is used.
+  prefix gets a "promptN_" segment, only when this is used - N is that
+  prompt's plain 0-based position in the list, unless "positive_prompt_rows"
+  (below) says otherwise.
+- "positive_prompt_rows" - optional list of numbers, one per entry in
+  "positive_prompts" (same length, same order) - e.g. the actual source
+  CSV row each prompt came from (set by the GUI's Testing tab when its
+  prompt list still exactly matches a CSV/row-range pull, untouched by any
+  manual edit). When given, filenames' "promptN_" segment uses these
+  instead of plain 0-based position, so e.g. a prompt pulled from row 27
+  of a CSV is labeled "prompt27_" - "which row of the source CSV was this"
+  instead of "which position in this particular run's own list".
 - "group_by_model" - optional, default false. Only matters with
   "positive_prompts" (2+ prompts) - by default every model is queued once
   per prompt (prompt-major order), which cycles back through every model
@@ -135,7 +145,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed, strip_loras
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -268,6 +278,7 @@ def run(config_path):
 
     present_models = resolve_present_models(config["models"], template, server)
     prompts = config_prompts(config)
+    prompt_labels = config_prompt_labels(config, prompts)
     multi_prompt = len(prompts) > 1
     group_by_model = bool(config.get("group_by_model"))
     # One random seed per prompt (not per queued variant, and not shared
@@ -312,7 +323,7 @@ def run(config_path):
                     apply_ksampler_overrides(wf, ksampler_id, overrides)
 
             suffix = f"_cfg{i}" if len(configs) > 1 else ""
-            prompt_part = f"prompt{p_idx}_" if multi_prompt else ""
+            prompt_part = f"prompt{prompt_labels[p_idx]}_" if multi_prompt else ""
             # group_by_model reorders queuing to model-major, so the
             # queue_index that otherwise leads each prefix would group
             # filenames by model when sorted by name instead of by prompt -

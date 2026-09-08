@@ -181,6 +181,23 @@ def config_prompts(config):
     return prompts
 
 
+def config_prompt_labels(config, prompts):
+    """The label used for each of config_prompts()'s returned prompts in
+    output filenames' "promptN_" segment - config's optional
+    "positive_prompt_rows" (a list of numbers, one per prompt, parallel to
+    "positive_prompts" - the GUI's CSV row-range picker sets this to each
+    prompt's actual source row number) if present and the same length as
+    prompts, otherwise just each prompt's plain 0-based position in the
+    list (the previous, source-oblivious behavior). A length mismatch (a
+    hand-edited config, or "positive_prompt_rows" without
+    "positive_prompts") falls back to plain positions entirely rather than
+    mislabeling anything."""
+    rows = config.get("positive_prompt_rows")
+    if rows and len(rows) == len(prompts):
+        return list(rows)
+    return list(range(len(prompts)))
+
+
 def find_ksampler_node_id(workflow):
     for node_id, node in workflow.items():
         if "KSampler" in node.get("class_type", ""):
