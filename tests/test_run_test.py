@@ -130,18 +130,20 @@ class ResolvePresentModelsTests(unittest.TestCase):
         self.assertEqual([m["model"] for m in present], ["modelA.safetensors", "modelB.safetensors"])
 
     @patch("funkytown_testing_harness.run_test.fetch_available_models")
-    def test_fewer_than_two_present_raises(self, mock_fetch):
+    def test_one_of_two_configured_present_is_returned(self, mock_fetch):
         mock_fetch.return_value = {"modelA.safetensors"}
         models = [{"model": "modelA.safetensors"}, {"model": "does_not_exist.safetensors"}]
-        with self.assertRaises(SystemExit):
-            resolve_present_models(models, self.template, "http://fake")
+        present = resolve_present_models(models, self.template, "http://fake")
+        self.assertEqual([m["model"] for m in present], ["modelA.safetensors"])
 
     @patch("funkytown_testing_harness.run_test.fetch_available_models")
-    def test_single_configured_model_raises(self, mock_fetch):
+    def test_single_configured_model_present_is_returned(self, mock_fetch):
+        # A single present model is fine now - just testing prompts against
+        # one model, rather than comparing several, is a valid use case.
         mock_fetch.return_value = {"modelA.safetensors"}
         models = [{"model": "modelA.safetensors"}]
-        with self.assertRaises(SystemExit):
-            resolve_present_models(models, self.template, "http://fake")
+        present = resolve_present_models(models, self.template, "http://fake")
+        self.assertEqual([m["model"] for m in present], ["modelA.safetensors"])
 
     @patch("funkytown_testing_harness.run_test.fetch_available_models")
     def test_zero_present_raises(self, mock_fetch):
@@ -317,8 +319,18 @@ class RunEndToEndTests(unittest.TestCase):
         run(self.config_path)
         self.assertEqual(len(self.queued), 3)  # unaffected - the missing one contributes nothing
 
-    def test_fewer_than_two_present_models_aborts_before_queuing(self):
-        self.config["models"] = [{"model": "modelA.safetensors"}]
+    def test_single_present_model_still_queues_successfully(self):
+        # A single configured (and present) model is a valid run now - just
+        # testing prompts against that one model, not a comparison. Keep
+        # modelA's own entry (2 configs) rather than a bare one, so this
+        # only drops modelB - not modelA's config sweep too.
+        self.config["models"] = [self.config["models"][0]]
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        self.assertEqual(len(self.queued), 2)  # modelA's 2 configs, no modelB
+
+    def test_zero_present_models_aborts_before_queuing(self):
+        self.config["models"] = [{"model": "does_not_exist.safetensors"}]
         self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
         with self.assertRaises(SystemExit):
             run(self.config_path)

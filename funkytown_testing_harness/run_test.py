@@ -73,9 +73,10 @@ Config file format (JSON):
     (UNETLoader for diffusion-only weights like Krea2, or
     CheckpointLoaderSimple for a combined checkpoint) is repointed at it.
     Checked against ComfyUI's own live model list (/object_info) before
-    running - one not currently installed is skipped with a warning. If
-    fewer than 2 configured models are present, the run aborts with an
-    error - comparing a single model isn't what this tool is for.
+    running - one not currently installed is skipped with a warning. At
+    least 1 configured model must be present or the run aborts with an
+    error; a single present model is fine - useful for just testing
+    prompts against one model rather than comparing several.
   - "configs" - optional list of KSampler overrides (seed, steps, cfg,
     sampler_name, scheduler, denoise). Omit for the workflow's own KSampler
     settings; give multiple entries to run that model once per entry.
@@ -178,7 +179,8 @@ def fetch_available_models(server, class_type, field):
 def resolve_present_models(models_config, template, server):
     """Check each configured model against ComfyUI's live model list. Returns
     the subset that are actually present (skipping - with a warning - any
-    that aren't), or exits with an error if fewer than 2 are present."""
+    that aren't), or exits with an error if none are present. A single
+    present model is fine - this tool doesn't require a comparison."""
     loader_nodes = find_model_loader_nodes(template)
     if not loader_nodes:
         sys.exit("Error: no recognized model-loader node (UNETLoader/CheckpointLoader) found in workflow.")
@@ -202,10 +204,9 @@ def resolve_present_models(models_config, template, server):
         else:
             print(f"[{model_name}] Skipping: not found on this ComfyUI server", file=sys.stderr)
 
-    if len(present) < 2:
+    if not present:
         sys.exit(
-            f"Error: only {len(present)} of {len(models_config)} configured model(s) are present on this "
-            "ComfyUI server. This tool compares models against each other, so at least 2 must be present."
+            f"Error: none of the {len(models_config)} configured model(s) are present on this ComfyUI server."
         )
     return present
 
