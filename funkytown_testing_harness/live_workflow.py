@@ -152,7 +152,7 @@ def apply_lora_rules(template, exclude=None):
     matches = select_loras(prompt_text)
     if exclude:
         matches = [(name, strength) for name, strength in matches if name not in exclude]
-    apply_loras(template, lora_node_id, matches)
+    apply_loras(template, lora_node_id, matches, exclude=exclude)
 
 
 def config_prompts(config):
