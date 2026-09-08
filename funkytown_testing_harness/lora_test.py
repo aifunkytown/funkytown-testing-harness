@@ -57,7 +57,16 @@ Config file format (JSON):
   every model/LoRA combination once per prompt in the list - e.g. 2 models,
   4 LoRA combinations, and 3 prompts queues 24 runs. The CSV log gains
   "Prompt Index"/"Prompt" columns and each output filename prefix gets a
-  "promptN_" segment, only when this is used.
+  "promptN_" segment, only when this is used - N is that prompt's plain
+  0-based position in the list, unless "positive_prompt_rows" (below) says
+  otherwise.
+- "positive_prompt_rows" - optional list of numbers, one per entry in
+  "positive_prompts" (same length, same order) - e.g. the actual source
+  CSV row each prompt came from (set by the GUI's Testing tab when its
+  prompt list still exactly matches a CSV/row-range pull, untouched by any
+  manual edit). When given, filenames' "promptN_" segment uses these
+  instead of plain 0-based position - see config_prompt_labels() in
+  live_workflow.py.
 - "group_by_model" - optional, default false. Only matters with
   "positive_prompts" (2+ prompts) - by default every model is queued once
   per prompt (prompt-major order), which cycles back through every model
@@ -134,7 +143,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompts, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -228,14 +237,19 @@ def combo_description(combo):
     return "; ".join(f"{lora}={weight}" for lora, weight in combo)
 
 
-def combo_prefix(name, run_id, queue_index, model, combo, prompt_idx=None, prompt_hash=None):
-    """prompt_hash (see prompt_short_hash() in live_workflow.py), if given,
+def combo_prefix(name, run_id, queue_index, model, combo, prompt_label=None, prompt_hash=None):
+    """prompt_label (see config_prompt_labels() in live_workflow.py) is
+    None for a single-prompt run (no "promptN_" segment at all), otherwise
+    that prompt's source CSV row number if known, else its plain 0-based
+    position in the run's own prompt list.
+
+    prompt_hash (see prompt_short_hash() in live_workflow.py), if given,
     leads the prefix ahead of queue_index - only passed by run() when
     group_by_model reordered queuing to model-major, so that sorting the
     output folder by filename groups each prompt's images together across
     every model instead of matching (now model-major) queue order."""
     lora_part = "__".join(f"{Path(lora).stem}_w{weight_label(weight)}" for lora, weight in combo)
-    prompt_part = f"prompt{prompt_idx}_" if prompt_idx is not None else ""
+    prompt_part = f"prompt{prompt_label}_" if prompt_label is not None else ""
     hash_part = f"{prompt_hash}_" if prompt_hash else ""
     return f"tests/{name}/{run_id}/{hash_part}{queue_index:04d}_{prompt_part}{Path(model).stem}__{lora_part}"
 
@@ -278,6 +292,7 @@ def run(config_path):
 
     present_models = resolve_present_models(config_models(config), template, server)
     prompts = config_prompts(config)
+    prompt_labels = config_prompt_labels(config, prompts)
     multi_prompt = len(prompts) > 1
     group_by_model = bool(config.get("group_by_model"))
     # One random seed per prompt (not per queued variant, and not shared
@@ -339,7 +354,7 @@ def run(config_path):
             apply_lora_rules(wf, exclude={lora_filename for lora_filename, _weight in combo})
 
             prompt_hash = prompt_short_hash(prompt_text) if (multi_prompt and group_by_model) else None
-            prefix = combo_prefix(name, run_id, queue_index, model, combo, p_idx if multi_prompt else None, prompt_hash)
+            prefix = combo_prefix(name, run_id, queue_index, model, combo, prompt_labels[p_idx] if multi_prompt else None, prompt_hash)
             for save_id in save_ids:
                 wf[save_id]["inputs"]["filename_prefix"] = prefix
 

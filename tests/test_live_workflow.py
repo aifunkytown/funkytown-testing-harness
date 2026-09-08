@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from funkytown_testing_harness.live_workflow import (
     apply_lora_rules,
+    config_prompt_labels,
     config_prompts,
     fetch_live_workflow,
     find_ksampler_node_id,
@@ -155,6 +156,27 @@ class ConfigPromptsTests(unittest.TestCase):
     def test_both_keys_given_raises(self):
         with self.assertRaises(SystemExit):
             config_prompts({"positive_prompt": "a", "positive_prompts": ["b", "c"]})
+
+
+class ConfigPromptLabelsTests(unittest.TestCase):
+    def test_no_rows_key_falls_back_to_plain_position(self):
+        prompts = ["a", "b", "c"]
+        self.assertEqual(config_prompt_labels({}, prompts), [0, 1, 2])
+
+    def test_matching_rows_used_as_is(self):
+        prompts = ["a", "b", "c"]
+        config = {"positive_prompt_rows": [20, 21, 30]}
+        self.assertEqual(config_prompt_labels(config, prompts), [20, 21, 30])
+
+    def test_mismatched_length_falls_back_to_plain_position(self):
+        prompts = ["a", "b", "c"]
+        config = {"positive_prompt_rows": [20, 21]}  # only 2, for 3 prompts
+        self.assertEqual(config_prompt_labels(config, prompts), [0, 1, 2])
+
+    def test_empty_rows_list_falls_back_to_plain_position(self):
+        prompts = ["a", "b"]
+        config = {"positive_prompt_rows": []}
+        self.assertEqual(config_prompt_labels(config, prompts), [0, 1])
 
 
 class PromptShortHashTests(unittest.TestCase):

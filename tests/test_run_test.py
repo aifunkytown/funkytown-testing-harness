@@ -501,6 +501,26 @@ class RunPromptSweepTests(unittest.TestCase):
         self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA", prefixes)
         self.assertIn("tests/unit_test_prompt_sweep/prompt2_modelB", prefixes)
 
+    def test_filename_prefix_uses_source_csv_row_when_given(self):
+        # "positive_prompt_rows" (set by the GUI when its prompt list still
+        # matches a CSV row-range pull) relabels "promptN_" to the actual
+        # source row instead of the plain 0-based position in this list.
+        self.config["positive_prompt_rows"] = [20, 21, 30]
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
+        self.assertIn("tests/unit_test_prompt_sweep/prompt20_modelA", prefixes)
+        self.assertIn("tests/unit_test_prompt_sweep/prompt30_modelB", prefixes)
+        self.assertNotIn("tests/unit_test_prompt_sweep/prompt2_modelB", prefixes)
+
+    def test_filename_prefix_falls_back_to_index_when_rows_mismatched(self):
+        self.config["positive_prompt_rows"] = [20, 21]  # only 2, for 3 prompts
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
+        self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA", prefixes)
+        self.assertIn("tests/unit_test_prompt_sweep/prompt2_modelB", prefixes)
+
     def test_log_csv_gains_prompt_columns(self):
         run(self.config_path)
         log_files = list(self.runs_dir.glob("unit_test_prompt_sweep_*.csv"))

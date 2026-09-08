@@ -439,6 +439,15 @@ class RunPromptSweepTests(unittest.TestCase):
         self.assertIn("tests/unit_test_prompt_sweep/prompt0_modelA__detail_slider_w1_0", prefixes)
         self.assertIn("tests/unit_test_prompt_sweep/prompt1_modelA__detail_slider_w1_0", prefixes)
 
+    def test_filename_prefix_uses_source_csv_row_when_given(self):
+        self.config["positive_prompt_rows"] = [20, 30]
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        run(self.config_path)
+        prefixes = {strip_run_id(wf["6"]["inputs"]["filename_prefix"]) for _s, wf, _c in self.queued}
+        self.assertIn("tests/unit_test_prompt_sweep/prompt20_modelA__detail_slider_w1_0", prefixes)
+        self.assertIn("tests/unit_test_prompt_sweep/prompt30_modelA__detail_slider_w1_0", prefixes)
+        self.assertNotIn("tests/unit_test_prompt_sweep/prompt1_modelA__detail_slider_w1_0", prefixes)
+
     def test_log_csv_gains_prompt_columns(self):
         run(self.config_path)
         log_files = list(self.runs_dir.glob("unit_test_prompt_sweep_*.csv"))
