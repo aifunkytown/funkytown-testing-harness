@@ -45,6 +45,11 @@ Config file format (JSON):
   user/default/workflows folder. Pulled fresh from ComfyUI and converted to
   API format every time this runs (requires playwright - see
   live_workflow.py).
+- "batch_size" - optional int, images produced per queued generation. Sets
+  the freshly fetched workflow's Empty Latent Image node (see
+  live_workflow.set_batch_size), reapplied every run, once to the shared
+  template rather than per variant. Left as whatever the workflow's own
+  live batch_size currently is if omitted.
 - "models" - list of model filenames (or "model" - a single filename - for
   the older single-model form; equivalent to a one-item "models" list).
   Each is checked against ComfyUI's own live model list (/object_info)
@@ -143,7 +148,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, load_live_template, prompt_short_hash, random_seed, set_batch_size, set_positive_prompt, set_seed
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -162,6 +167,8 @@ def build_template(config, server):
 
     if config.get("positive_prompt"):
         set_positive_prompt(template, config["positive_prompt"])
+    if config.get("batch_size"):
+        set_batch_size(template, config["batch_size"])
 
     return template
 

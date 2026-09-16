@@ -13,6 +13,7 @@ from funkytown_testing_harness.live_workflow import (
     load_live_template,
     prompt_short_hash,
     random_seed,
+    set_batch_size,
     set_positive_prompt,
     set_seed,
     strip_loras,
@@ -240,6 +241,30 @@ class SetSeedTests(unittest.TestCase):
         wf = {"1": {"class_type": "SaveImage", "inputs": {}}}
         set_seed(wf, 12345)  # must not raise
         self.assertNotIn("seed", wf["1"]["inputs"])
+
+
+class SetBatchSizeTests(unittest.TestCase):
+    def test_sets_batch_size_on_empty_latent_image_node(self):
+        wf = {"5": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512, "batch_size": 1}}}
+        set_batch_size(wf, 4)
+        self.assertEqual(wf["5"]["inputs"]["batch_size"], 4)
+
+    def test_leaves_width_and_height_untouched(self):
+        wf = {"5": {"class_type": "EmptyLatentImage", "inputs": {"width": 768, "height": 1024, "batch_size": 1}}}
+        set_batch_size(wf, 4)
+        self.assertEqual(wf["5"]["inputs"]["width"], 768)
+        self.assertEqual(wf["5"]["inputs"]["height"], 1024)
+
+    def test_finds_a_same_shaped_variant_by_structure(self):
+        # e.g. EmptySD3LatentImage - see find_empty_latent_image_node.
+        wf = {"5": {"class_type": "EmptySD3LatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}}}
+        set_batch_size(wf, 3)
+        self.assertEqual(wf["5"]["inputs"]["batch_size"], 3)
+
+    def test_noop_when_no_empty_latent_image_node(self):
+        wf = {"1": {"class_type": "SaveImage", "inputs": {}}}
+        set_batch_size(wf, 4)  # must not raise
+        self.assertNotIn("batch_size", wf["1"]["inputs"])
 
 
 class FetchLiveWorkflowTests(unittest.TestCase):
