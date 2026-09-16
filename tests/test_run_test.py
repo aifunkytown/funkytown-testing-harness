@@ -182,6 +182,20 @@ class BuildTemplateTests(unittest.TestCase):
         template = build_template(config, "http://fake-server")
         self.assertEqual(template["3"]["inputs"]["text"], "a brand new prompt")
 
+    @patch("funkytown_testing_harness.run_test.load_live_template")
+    def test_applies_batch_size_override(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "batch_size": 8}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["5"]["inputs"]["batch_size"], 8)
+
+    @patch("funkytown_testing_harness.run_test.load_live_template")
+    def test_does_not_touch_batch_size_unless_requested(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["5"]["inputs"]["batch_size"], 3)  # the workflow's own value, untouched
+
 
 class RunEndToEndTests(unittest.TestCase):
     """Exercises the full run() flow: always-fresh fetch (mocked) + model swap +

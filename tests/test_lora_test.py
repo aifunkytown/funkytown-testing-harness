@@ -61,6 +61,20 @@ class BuildTemplateTests(unittest.TestCase):
         template = build_template(config, "http://fake-server")
         self.assertEqual(template["3"]["inputs"]["text"], "a new prompt")
 
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_applies_batch_size_override(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "batch_size": 6}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["5"]["inputs"]["batch_size"], 6)
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_does_not_touch_batch_size_unless_requested(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["5"]["inputs"]["batch_size"], 3)  # the workflow's own value, untouched
+
 
 class ConfigModelsTests(unittest.TestCase):
     def test_single_model_key_normalized_to_list(self):

@@ -26,12 +26,12 @@ from pathlib import Path
 # If something (e.g. the GUI, using a custom path from settings) already made
 # comfy_prompt_tools importable, that takes precedence over the sibling guess.
 try:
-    from comfy_prompt_tools.rerun_prompts_comfyui import apply_loras, find_power_lora_loader_id, find_prompt_node_ids, select_loras
+    from comfy_prompt_tools.rerun_prompts_comfyui import apply_loras, find_empty_latent_image_node, find_power_lora_loader_id, find_prompt_node_ids, select_loras
 except ImportError:
     _COMFY_PROMPT_TOOLS = Path(__file__).resolve().parent.parent.parent / "comfy-prompt-tools"
     sys.path.insert(0, str(_COMFY_PROMPT_TOOLS))
     try:
-        from comfy_prompt_tools.rerun_prompts_comfyui import apply_loras, find_power_lora_loader_id, find_prompt_node_ids, select_loras
+        from comfy_prompt_tools.rerun_prompts_comfyui import apply_loras, find_empty_latent_image_node, find_power_lora_loader_id, find_prompt_node_ids, select_loras
     except ImportError:
         sys.exit(
             f"Error: could not import comfy_prompt_tools from {_COMFY_PROMPT_TOOLS}.\n"
@@ -245,6 +245,19 @@ def set_seed(workflow, seed):
     node_id = find_ksampler_node_id(workflow)
     if node_id:
         workflow[node_id]["inputs"]["seed"] = seed
+
+
+def set_batch_size(workflow, batch_size):
+    """Sets `batch_size` (images produced per queued generation) on the
+    workflow's Empty Latent Image node, if one is present - silently does
+    nothing otherwise, same convention as set_seed(). Leaves width/height
+    and everything else about that node untouched. Applied once to the
+    shared template in build_template() (run_test.py/lora_test.py), not
+    per queued variant - it's a run-wide setting, not something that
+    varies per model/prompt/config the way a KSampler override does."""
+    node_id = find_empty_latent_image_node(workflow)
+    if node_id:
+        workflow[node_id]["inputs"]["batch_size"] = batch_size
 
 
 def prompt_short_hash(prompt_text):

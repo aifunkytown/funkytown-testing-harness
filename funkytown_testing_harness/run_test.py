@@ -40,6 +40,12 @@ Config file format (JSON):
   API format every time this runs (requires playwright - see
   live_workflow.py). Its batch_size and anything else not explicitly
   overridden below is used exactly as it currently is in ComfyUI.
+- "batch_size" - optional int, images produced per queued generation. Sets
+  the freshly fetched workflow's Empty Latent Image node (see
+  live_workflow.set_batch_size), same as "strip_loras"/"positive_prompt"
+  below - reapplied every run, once to the shared template rather than per
+  variant, since it's a run-wide setting. Left as whatever the workflow's
+  own live batch_size currently is if omitted.
 - "strip_loras" / "positive_prompt" - optional, reapplied to the freshly
   fetched workflow every run: turns off every slot in the Power Lora
   Loader node (without deleting them - see live_workflow.strip_loras)
@@ -147,7 +153,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_positive_prompt, set_seed, strip_loras
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_batch_size, set_positive_prompt, set_seed, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -169,6 +175,8 @@ def build_template(config, server):
         strip_loras(template)
     if config.get("positive_prompt"):
         set_positive_prompt(template, config["positive_prompt"])
+    if config.get("batch_size"):
+        set_batch_size(template, config["batch_size"])
 
     return template
 
