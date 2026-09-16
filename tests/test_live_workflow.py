@@ -52,12 +52,22 @@ class IsApiFormatTests(unittest.TestCase):
 
 
 class StripLorasTests(unittest.TestCase):
-    def test_removes_all_lora_slots(self):
+    def test_turns_off_all_lora_slots(self):
         wf = make_template_with_lora()
         strip_loras(wf)
         inputs = wf["7"]["inputs"]
-        self.assertNotIn("lora_1", inputs)
-        self.assertNotIn("lora_2", inputs)
+        self.assertFalse(inputs["lora_1"]["on"])
+        self.assertFalse(inputs["lora_2"]["on"])
+
+    def test_keeps_the_slots_themselves_in_place(self):
+        # Turned off, not deleted - see strip_loras()'s docstring: a slot
+        # it turns off here still needs to structurally exist afterward so
+        # apply_lora_rules()'s later keyword match can turn it back on.
+        wf = make_template_with_lora()
+        strip_loras(wf)
+        inputs = wf["7"]["inputs"]
+        self.assertEqual(inputs["lora_1"]["lora"], "some_lora.safetensors")
+        self.assertEqual(inputs["lora_2"]["lora"], "other_lora.safetensors")
 
     def test_keeps_model_and_clip_passthrough(self):
         wf = make_template_with_lora()

@@ -106,16 +106,27 @@ def load_live_template(server, source_workflow):
 
 
 def strip_loras(template):
-    """Clear every lora_N slot from the Power Lora Loader (rgthree) node,
-    leaving just its model/clip passthrough."""
+    """Turn off every existing lora_N slot in the Power Lora Loader
+    (rgthree) node - keeping the slots themselves (filename, strength) in
+    place, just their "on" state reset, via apply_loras()'s own "empty
+    matches" case (comfy_prompt_tools.rerun_prompts_comfyui). Used for a
+    config's "strip_loras": true so whatever's manually left toggled on in
+    ComfyUI's own live workflow never carries over into an automated run
+    uncontrolled.
+
+    This used to delete the slots outright instead of just turning them
+    off - which gave the same clean-baseline guarantee, but also
+    permanently blocked apply_lora_rules()'s later keyword-based matching
+    for that run, since there was nothing structurally left to turn back
+    on. Turning slots off instead of deleting them gives the same
+    contamination guarantee while leaving apply_lora_rules() free to turn
+    a specific one back on afterward, if this run's prompt text actually
+    matches a keyword rule."""
     lora_node_id = find_power_lora_loader_id(template)
     if not lora_node_id:
         print("  warning: strip_loras requested but no Power Lora Loader node found", file=sys.stderr)
         return
-    inputs = template[lora_node_id]["inputs"]
-    keep = {k: v for k, v in inputs.items() if k in ("model", "clip")}
-    inputs.clear()
-    inputs.update(keep)
+    apply_loras(template, lora_node_id, [])
 
 
 def set_positive_prompt(template, text):
@@ -135,8 +146,9 @@ def apply_lora_rules(template, exclude=None):
     keyword -> LoRA routing rerun_prompts_comfyui.py applies to a rerun
     prompt. Only a LoRA slot that still structurally exists in the Power
     Lora Loader node can be turned on this way - if the caller already ran
-    strip_loras() (which removes every slot outright, not just turns them
-    off), there's nothing left for this to act on.
+    strip_loras(), that's fine, a slot it turned off can still be turned
+    back on here; only a workflow with no matching slot at all (or none of
+    that filename) leaves nothing for this to act on.
 
     exclude is an optional set of LoRA filenames to leave alone - e.g.
     lora_test.py's own explicitly-swept target(s) for this combination, so

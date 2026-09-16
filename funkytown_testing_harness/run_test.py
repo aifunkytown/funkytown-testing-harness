@@ -41,15 +41,17 @@ Config file format (JSON):
   live_workflow.py). Its batch_size and anything else not explicitly
   overridden below is used exactly as it currently is in ComfyUI.
 - "strip_loras" / "positive_prompt" - optional, reapplied to the freshly
-  fetched workflow every run: clears the Power Lora Loader node and/or
-  overwrites the positive prompt text. After these, comfy_prompt_tools'
-  keyword -> LoRA routing (lora_rules.json / lora_rules.local.json) is
-  applied against whatever the effective prompt text ends up being (the
-  override above, or the workflow's own default if none given) - but only
-  a LoRA slot that still structurally exists can be turned on this way, so
-  "strip_loras": true (which removes every slot outright, not just turns
-  them off) leaves nothing for it to act on. Leave strip_loras unset/false
-  if you want keyword-matched LoRAs to actually take effect.
+  fetched workflow every run: turns off every slot in the Power Lora
+  Loader node (without deleting them - see live_workflow.strip_loras)
+  and/or overwrites the positive prompt text. After these, comfy_prompt_
+  tools' keyword -> LoRA routing (lora_rules.json / lora_rules.local.json)
+  is applied against whatever the effective prompt text ends up being
+  (the override above, or the workflow's own default if none given), and
+  can still turn a matching slot back on even with "strip_loras": true -
+  the slots stay in place, only their "on" state gets reset first, so
+  nothing manually left toggled on in ComfyUI's own live workflow carries
+  over uncontrolled, while a keyword match this run's own prompt actually
+  calls for still applies normally.
 - "positive_prompts" - optional list of prompt strings, mutually exclusive
   with "positive_prompt" (config is rejected if both are given). Sweeps
   every model/config combination once per prompt in the list - e.g. 2
