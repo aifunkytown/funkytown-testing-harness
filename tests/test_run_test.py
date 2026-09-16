@@ -427,15 +427,17 @@ class RunLoraRuleRoutingTests(unittest.TestCase):
         run(self.config_path)
         self.mock_select_loras.assert_called_with("a scene with a furry character")
 
-    def test_strip_loras_removes_the_slot_so_routing_has_nothing_to_act_on(self):
-        # strip_loras deletes every lora_N slot outright (not just turns it
-        # off), so a keyword match afterward has no slot left to turn on -
-        # see live_workflow.apply_lora_rules's docstring.
+    def test_strip_loras_still_allows_a_keyword_match_to_turn_a_slot_back_on(self):
+        # strip_loras() only turns a slot off, keeping it structurally in
+        # place (see live_workflow.strip_loras's docstring) - so a keyword
+        # match against this run's prompt can still turn it back on, even
+        # with "strip_loras": true set.
         self.config["strip_loras"] = True
         self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
         run(self.config_path)
         for _server, wf, _client_id in self.queued:
-            self.assertNotIn("lora_1", wf["7"]["inputs"])
+            self.assertTrue(wf["7"]["inputs"]["lora_1"]["on"])
+            self.assertEqual(wf["7"]["inputs"]["lora_1"]["strength"], 0.75)
 
 
 class RunPromptSweepTests(unittest.TestCase):
