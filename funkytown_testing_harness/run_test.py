@@ -297,6 +297,14 @@ def run(config_path):
 
     RUNS_DIR.mkdir(exist_ok=True)
     log_path = RUNS_DIR / f"{name}_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
+    # Saved right next to the log, same stem - the exact config this
+    # specific run actually used, permanently tied to it. configs/<name>.json
+    # (File > Save Test...'s own save location) isn't reliable for this:
+    # it's whatever the user last explicitly saved under that name, which
+    # may not exist at all for an ad-hoc/unnamed run, and gets overwritten
+    # by a later run under the same name regardless. This companion file
+    # is what the GUI's Results tab "Load Test" button reads.
+    log_path.with_suffix(".json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     print(f"Models present ({len(present_models)}/{len(config['models'])}): "
           f"{', '.join(m['model'] for m in present_models)}")

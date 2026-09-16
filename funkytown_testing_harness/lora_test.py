@@ -322,6 +322,10 @@ def run(config_path):
 
     RUNS_DIR.mkdir(exist_ok=True)
     log_path = RUNS_DIR / f"{name}_{datetime.datetime.now():%Y%m%d_%H%M%S}.csv"
+    # Saved right next to the log, same stem - the exact config this
+    # specific run actually used, permanently tied to it - see run_test.py's
+    # own copy of this for why (same reasoning applies here).
+    log_path.with_suffix(".json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     mode = "combined" if combine else "isolated"
     total_runs = len(present_models) * len(combinations) * len(prompts)
