@@ -259,6 +259,20 @@ class RunEndToEndTests(unittest.TestCase):
         run(self.config_path)
         self.mock_load_template.assert_called_once_with("http://fake", "krea2_basic_t2i.json")
 
+    def test_saves_a_config_copy_next_to_the_log(self):
+        # Same stem as the log CSV, just .json - this is what the GUI's
+        # Results tab "Load Test" button reads, since it's tied to this
+        # exact run (unlike configs/<name>.json, which may not exist for
+        # an ad-hoc run, or may since have been overwritten by a later run
+        # under the same name).
+        run(self.config_path)
+        csv_logs = list(self.runs_dir.glob("*.csv"))
+        self.assertEqual(len(csv_logs), 1)
+        json_path = csv_logs[0].with_suffix(".json")
+        self.assertTrue(json_path.is_file())
+        saved_config = json.loads(json_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved_config, self.config)
+
     def test_model_with_multiple_configs_runs_once_per_config(self):
         run(self.config_path)
         model_a_runs = [q for q in self.queued if q[1]["1"]["inputs"]["unet_name"] == "modelA.safetensors"]

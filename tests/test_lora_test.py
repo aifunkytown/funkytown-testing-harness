@@ -178,6 +178,17 @@ class RunEndToEndTests(unittest.TestCase):
         run(self.config_path)
         self.assertEqual(len(self.queued), 3)  # 0.5, 1.0, 1.5
 
+    def test_saves_a_config_copy_next_to_the_log(self):
+        # Same stem as the log CSV, just .json - see run_test.py's own
+        # version of this test for why.
+        run(self.config_path)
+        csv_logs = list(self.runs_dir.glob("*.csv"))
+        self.assertEqual(len(csv_logs), 1)
+        json_path = csv_logs[0].with_suffix(".json")
+        self.assertTrue(json_path.is_file())
+        saved_config = json.loads(json_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved_config, self.config)
+
     def test_model_is_set_on_every_queued_variant(self):
         run(self.config_path)
         for _server, wf, _client_id in self.queued:
