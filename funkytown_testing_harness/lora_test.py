@@ -57,6 +57,12 @@ Config file format (JSON):
   The run aborts with an error if none of them are present.
 - "positive_prompt" - optional, reapplied every run: overwrites the positive
   CLIPTextEncode node's text.
+- "negative_prompt" - optional, reapplied every run: overwrites the
+  negative CLIPTextEncode node's text (see live_workflow.
+  set_negative_prompt) - the other half of the pair "positive_prompt"
+  overwrites. Left as whatever the workflow's own live negative prompt
+  currently is if omitted; warns instead of failing if the workflow has
+  no negative-conditioning node at all.
 - "positive_prompts" - optional list of prompt strings, mutually exclusive
   with "positive_prompt" (config is rejected if both are given). Sweeps
   every model/LoRA combination once per prompt in the list - e.g. 2 models,
@@ -148,7 +154,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, load_live_template, prompt_short_hash, random_seed, set_batch_size, set_positive_prompt, set_seed
+from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, load_live_template, prompt_short_hash, random_seed, set_batch_size, set_negative_prompt, set_positive_prompt, set_seed
 from funkytown_testing_harness.lora_swap import set_multiple_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
@@ -167,6 +173,8 @@ def build_template(config, server):
 
     if config.get("positive_prompt"):
         set_positive_prompt(template, config["positive_prompt"])
+    if config.get("negative_prompt"):
+        set_negative_prompt(template, config["negative_prompt"])
     if config.get("batch_size"):
         set_batch_size(template, config["batch_size"])
 

@@ -62,6 +62,20 @@ class BuildTemplateTests(unittest.TestCase):
         self.assertEqual(template["3"]["inputs"]["text"], "a new prompt")
 
     @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_applies_negative_prompt_override(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "negative_prompt": "blurry, low quality"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "blurry, low quality")
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_does_not_touch_negative_prompt_unless_requested(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "")  # the workflow's own value, untouched
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
     def test_applies_batch_size_override(self, mock_load):
         mock_load.return_value = make_template()
         config = {"source_workflow": "wf.json", "batch_size": 6}
