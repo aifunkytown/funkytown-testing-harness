@@ -62,9 +62,15 @@ Config file format (JSON):
   workflow's negative CLIPTextEncode node's text (see live_workflow.
   set_negative_prompt) - the other half of the pair "positive_prompt"
   overwrites. No keyword -> LoRA routing runs against this text (that's
-  keyed off the positive prompt only). Left as whatever the workflow's
-  own live negative prompt currently is if omitted; warns instead of
-  failing if the workflow has no negative-conditioning node at all.
+  keyed off the positive prompt only). Warns instead of failing if the
+  workflow has no negative-conditioning node at all.
+- "use_default_negative_prompt" - optional, default true. Only matters
+  when "negative_prompt" is omitted (or empty): true (the default) applies
+  live_workflow.DEFAULT_NEGATIVE_PROMPT instead of leaving the workflow's
+  own live negative prompt alone; set explicitly to false to fall back to
+  the pre-default behavior of leaving it untouched. Never consulted at all
+  when "negative_prompt" is actually given - that value always wins
+  outright, regardless of this flag.
 - "positive_prompts" - optional list of prompt strings, mutually exclusive
   with "positive_prompt" (config is rejected if both are given). Sweeps
   every model/config combination once per prompt in the list - e.g. 2
@@ -160,7 +166,7 @@ except ImportError:
             "funkytown-testing-harness (or already importable via sys.path)."
         )
 
-from funkytown_testing_harness.live_workflow import apply_lora_rules, config_prompt_labels, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_batch_size, set_negative_prompt, set_positive_prompt, set_seed, strip_loras
+from funkytown_testing_harness.live_workflow import DEFAULT_NEGATIVE_PROMPT, apply_lora_rules, config_prompt_labels, config_prompts, find_ksampler_node_id, load_live_template, prompt_short_hash, random_seed, set_batch_size, set_negative_prompt, set_positive_prompt, set_seed, strip_loras
 from funkytown_testing_harness.model_swap import find_model_loader_nodes, set_model
 
 RUNS_DIR = Path(__file__).resolve().parent.parent / "runs"
@@ -184,6 +190,8 @@ def build_template(config, server):
         set_positive_prompt(template, config["positive_prompt"])
     if config.get("negative_prompt"):
         set_negative_prompt(template, config["negative_prompt"])
+    elif config.get("use_default_negative_prompt", True):
+        set_negative_prompt(template, DEFAULT_NEGATIVE_PROMPT)
     if config.get("batch_size"):
         set_batch_size(template, config["batch_size"])
 

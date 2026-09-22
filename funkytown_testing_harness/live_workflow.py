@@ -138,6 +138,14 @@ def set_positive_prompt(template, text):
     template[positive_id]["inputs"]["text"] = text
 
 
+DEFAULT_NEGATIVE_PROMPT = "child, lowres, worst quality, bad quality, bad anatomy, signature, watermark, logo, oldest, conjoined"
+# Applied by run_test.py/lora_test.py's build_template() whenever a config
+# gives no "negative_prompt" of its own and hasn't opted out via
+# "use_default_negative_prompt": false - see those two functions' own
+# docstrings. Defined here (not there) since it's paired with
+# set_negative_prompt() itself, and shared by both callers either way.
+
+
 def set_negative_prompt(template, text):
     """Overwrite the negative CLIPTextEncode node's text - same convention
     as set_positive_prompt(), just the other one of the pair
