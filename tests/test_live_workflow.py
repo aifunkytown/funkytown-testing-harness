@@ -14,6 +14,7 @@ from funkytown_testing_harness.live_workflow import (
     prompt_short_hash,
     random_seed,
     set_batch_size,
+    set_negative_prompt,
     set_positive_prompt,
     set_seed,
     strip_loras,
@@ -96,6 +97,22 @@ class SetPositivePromptTests(unittest.TestCase):
     def test_noop_when_no_positive_node_found(self):
         wf = {"1": {"class_type": "KSampler", "inputs": {}}}
         set_positive_prompt(wf, "anything")  # should not raise
+
+
+class SetNegativePromptTests(unittest.TestCase):
+    def test_overwrites_negative_prompt_text(self):
+        wf = make_template_with_lora()
+        set_negative_prompt(wf, "blurry, low quality, deformed hands")
+        self.assertEqual(wf["4"]["inputs"]["text"], "blurry, low quality, deformed hands")
+
+    def test_leaves_positive_prompt_untouched(self):
+        wf = make_template_with_lora()
+        set_negative_prompt(wf, "blurry, low quality, deformed hands")
+        self.assertEqual(wf["3"]["inputs"]["text"], "original prompt")
+
+    def test_noop_when_no_negative_node_found(self):
+        wf = {"1": {"class_type": "KSampler", "inputs": {}}}
+        set_negative_prompt(wf, "anything")  # should not raise
 
 
 class ApplyLoraRulesTests(unittest.TestCase):

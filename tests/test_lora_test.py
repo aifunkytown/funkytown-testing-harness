@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from funkytown_testing_harness.lora_test import build_template, config_models, iter_variants, load_config, resolve_present_models, run
+from funkytown_testing_harness.lora_test import DEFAULT_NEGATIVE_PROMPT, build_template, config_models, iter_variants, load_config, resolve_present_models, run
 
 
 def strip_run_id(prefix):
@@ -60,6 +60,34 @@ class BuildTemplateTests(unittest.TestCase):
         config = {"source_workflow": "wf.json", "positive_prompt": "a new prompt"}
         template = build_template(config, "http://fake-server")
         self.assertEqual(template["3"]["inputs"]["text"], "a new prompt")
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_applies_negative_prompt_override(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "negative_prompt": "blurry, low quality"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "blurry, low quality")
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_applies_default_negative_prompt_when_none_given(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], DEFAULT_NEGATIVE_PROMPT)
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_use_default_negative_prompt_false_leaves_it_untouched(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "use_default_negative_prompt": False}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "")  # the workflow's own value, untouched
+
+    @patch("funkytown_testing_harness.lora_test.load_live_template")
+    def test_explicit_negative_prompt_wins_over_default(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "negative_prompt": "my own negative prompt"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "my own negative prompt")
 
     @patch("funkytown_testing_harness.lora_test.load_live_template")
     def test_applies_batch_size_override(self, mock_load):

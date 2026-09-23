@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from funkytown_testing_harness.run_test import (
+    DEFAULT_NEGATIVE_PROMPT,
     apply_ksampler_overrides,
     build_template,
     find_ksampler_node_id,
@@ -169,9 +170,12 @@ class BuildTemplateTests(unittest.TestCase):
         # No Power Lora Loader node in this fixture - if strip_loras were
         # mistakenly invoked it would just warn, not fail, so this mainly
         # documents that omitting the key is the default (covered for real
-        # in test_live_workflow.py's StripLorasTests).
+        # in test_live_workflow.py's StripLorasTests). use_default_negative_
+        # prompt: false so this full-equality check isn't also tripped up
+        # by the (separately opt-out-able, on-by-default) negative prompt
+        # default - unrelated to what this test is actually documenting.
         mock_load.return_value = make_template()
-        config = {"source_workflow": "wf.json"}
+        config = {"source_workflow": "wf.json", "use_default_negative_prompt": False}
         template = build_template(config, "http://fake-server")
         self.assertEqual(template, make_template())
 
@@ -181,6 +185,34 @@ class BuildTemplateTests(unittest.TestCase):
         config = {"source_workflow": "wf.json", "positive_prompt": "a brand new prompt"}
         template = build_template(config, "http://fake-server")
         self.assertEqual(template["3"]["inputs"]["text"], "a brand new prompt")
+
+    @patch("funkytown_testing_harness.run_test.load_live_template")
+    def test_applies_negative_prompt_override(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "negative_prompt": "blurry, low quality"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "blurry, low quality")
+
+    @patch("funkytown_testing_harness.run_test.load_live_template")
+    def test_applies_default_negative_prompt_when_none_given(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], DEFAULT_NEGATIVE_PROMPT)
+
+    @patch("funkytown_testing_harness.run_test.load_live_template")
+    def test_use_default_negative_prompt_false_leaves_it_untouched(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "use_default_negative_prompt": False}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "")  # the workflow's own value, untouched
+
+    @patch("funkytown_testing_harness.run_test.load_live_template")
+    def test_explicit_negative_prompt_wins_over_default(self, mock_load):
+        mock_load.return_value = make_template()
+        config = {"source_workflow": "wf.json", "negative_prompt": "my own negative prompt"}
+        template = build_template(config, "http://fake-server")
+        self.assertEqual(template["4"]["inputs"]["text"], "my own negative prompt")
 
     @patch("funkytown_testing_harness.run_test.load_live_template")
     def test_applies_batch_size_override(self, mock_load):

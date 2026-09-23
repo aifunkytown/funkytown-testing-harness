@@ -138,6 +138,30 @@ def set_positive_prompt(template, text):
     template[positive_id]["inputs"]["text"] = text
 
 
+DEFAULT_NEGATIVE_PROMPT = "child, lowres, worst quality, bad quality, bad anatomy, signature, watermark, logo, oldest, conjoined"
+# Applied by run_test.py/lora_test.py's build_template() whenever a config
+# gives no "negative_prompt" of its own and hasn't opted out via
+# "use_default_negative_prompt": false - see those two functions' own
+# docstrings. Defined here (not there) since it's paired with
+# set_negative_prompt() itself, and shared by both callers either way.
+
+
+def set_negative_prompt(template, text):
+    """Overwrite the negative CLIPTextEncode node's text - same convention
+    as set_positive_prompt(), just the other one of the pair
+    find_prompt_node_ids() resolves. Only actually reaches ComfyUI if the
+    workflow's own negative-conditioning node is present and reachable
+    from the KSampler - a workflow with no real negative prompt node (or
+    one collapsed/hidden in ComfyUI's own UI, which doesn't affect this -
+    only its presence in the graph does) warns instead of silently doing
+    nothing."""
+    _positive_id, negative_id = find_prompt_node_ids(template)
+    if not negative_id:
+        print("  warning: negative_prompt given but no negative prompt node found", file=sys.stderr)
+        return
+    template[negative_id]["inputs"]["text"] = text
+
+
 def apply_lora_rules(template, exclude=None):
     """Turn on any comfy_prompt_tools.rerun_prompts_comfyui LORA_RULES-matched
     LoRA slot, based on whatever the workflow's positive prompt text
